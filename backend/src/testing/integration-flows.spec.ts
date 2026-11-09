@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { collectAndWait, connectMeta, createIntegrationContext, isoDaysAgo, waitForRun } from './integration-flows';
+import { collectAndWait, connectMeta, connectTikTok, createIntegrationContext, isoDaysAgo, waitForRun } from './integration-flows';
 import { ApiClient } from './integration-support';
 
 jest.mock('@supabase/supabase-js', () => ({ createClient: jest.fn() }));
@@ -60,6 +60,21 @@ describe('connectMeta', () => {
     const api = buildApi();
     api.post.mockResolvedValue({ status: 400, body: { message: 'bad token' } });
     await expect(connectMeta(api, 'x')).rejects.toThrow('Connecting Meta failed with HTTP 400');
+  });
+});
+
+describe('connectTikTok', () => {
+  it('connects the token for the advertisers and returns the accounts', async () => {
+    const api = buildApi();
+    api.post.mockResolvedValue({ status: 201, body: {} });
+    api.get.mockResolvedValue({ status: 200, body: [{ id: 'a1' }] });
+    expect(await connectTikTok(api, 'tt-token', ['700'])).toEqual([{ id: 'a1' }]);
+    expect(api.post).toHaveBeenCalledWith('/tiktok/connections', { token: 'tt-token', advertiser_ids: ['700'] });
+  });
+  it('explains a failed connection', async () => {
+    const api = buildApi();
+    api.post.mockResolvedValue({ status: 400, body: { message: 'TikTok rejected the token' } });
+    await expect(connectTikTok(api, 'x', ['700'])).rejects.toThrow('Connecting TikTok failed with HTTP 400');
   });
 });
 

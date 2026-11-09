@@ -3,7 +3,8 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import { Badge, Button, Card, Empty, ErrorBox, Field, Notice, PageHeader, Spinner, statusTone } from '@/components/ui';
 import { useApi, useData } from '@/lib/api';
-import { describePermissions, readOAuthResult } from '@/lib/connections';
+import { PLATFORM_LABELS } from '@/lib/collection-targets';
+import { connectionsPathFor, describePermissions, displayAccountId, mergeConnections, parseAdvertiserIds, readOAuthResult } from '@/lib/connections';
 import { formatDateTime } from '@/lib/format';
 import type { AdAccount, MetaConnection, MetaStatus } from '@/lib/types';
 
@@ -11,10 +12,16 @@ function Connections() {
   const api = useApi();
   const oauthResult = readOAuthResult(useSearchParams());
   const { data: status } = useData<MetaStatus>('/meta/status');
-  const { data: connections, error, mutate } = useData<MetaConnection[]>('/meta/connections');
+  const { data: metaConnections, error, mutate } = useData<MetaConnection[]>('/meta/connections');
+  const { data: tiktokConnections, mutate: reloadTikTok } = useData<MetaConnection[]>('/tiktok/connections');
+  const connections = mergeConnections(metaConnections, tiktokConnections);
   const { data: accounts, mutate: reloadAccounts } = useData<AdAccount[]>('/ad-accounts');
   const [token, setToken] = useState('');
   const [label, setLabel] = useState('');
+  const [tiktokToken, setTiktokToken] = useState('');
+  const [tiktokLabel, setTiktokLabel] = useState('');
+  const [advertiserText, setAdvertiserText] = useState('');
+  const advertiserIds = parseAdvertiserIds(advertiserText);
   const [busyKey, setBusyKey] = useState<string>();
   const [actionError, setActionError] = useState<unknown>(oauthResult.error ? new Error(oauthResult.error) : undefined);
   const [message, setMessage] = useState<string | undefined>(oauthResult.message);
@@ -27,6 +34,7 @@ function Connections() {
       const result = await action();
       if (typeof result === 'string') setMessage(result);
       await mutate();
+      await reloadTikTok();
       await reloadAccounts();
     } catch (caught) {
       setActionError(caught);
@@ -37,7 +45,7 @@ function Connections() {
 
   return (
     <>
-      <PageHeader title="Meta Connections" subtitle="Connect Meta so the app can read ads from ad accounts you are authorised for." />
+      <PageHeader title="Connections" subtitle="Connect Meta and TikTok so the app can read ads from ad accounts you are authorised for." />
       <div className="space-y-5">
         <ErrorBox error={actionError ?? error} />
         {message && <Notice tone="green">{message}</Notice>}
@@ -84,15 +92,40 @@ function Connections() {
           </Card>
         </div>
 
+        <Card title="Connect TikTok ads">
+          <div className="space-y-3">
+            <Field label="Marketing API access token">
+              <input className="input font-mono" type="password" autoComplete="off" value={tiktokToken} onChange={(event) => setTiktokToken(event.target.value)} placeholder="Access token from TikTok for Business" />
+            </Field>
+            <Field label="Advertiser IDs (comma separated)">
+              <input className="input font-mono" value={advertiserText} onChange={(event) => setAdvertiserText(event.target.value)} placeholder="7001234567890123456" />
+            </Field>
+            <Field label="Label (optional)"><input className="input" value={tiktokLabel} onChange={(event) => setTiktokLabel(event.target.value)} /></Field>
+            <Button
+              loading={busyKey === 'tiktok'}
+              disabled={tiktokToken.trim().length < 20 || advertiserIds.length === 0}
+              onClick={() => perform('tiktok', async () => {
+                await api.post('/tiktok/connections', { token: tiktokToken.trim(), advertiser_ids: advertiserIds, name: tiktokLabel || undefined });
+                setTiktokToken('');
+                setAdvertiserText('');
+                setTiktokLabel('');
+                return 'TikTok token verified and stored securely.';
+              })}
+            >
+              Verify & connect TikTok
+            </Button>
+          </div>
+        </Card>
+
         <Card title="Connections">
-          {!connections ? <Spinner /> : (connections.length === 0 ? <Empty title="No Meta connections" /> : (
+          {!connections ? <Spinner /> : (connections.length === 0 ? <Empty title="No connections" /> : (
             <ul className="divide-y divide-slate-100">
               {connections.map((connection) => (
-                <li key={connection.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <li key={`${connection.platform}-${connection.id}`} className="flex flex-wrap items-center justify-between gap-3 py-3">
                   <div className="min-w-0">
-                    <p className="font-medium">{connection.name ?? connection.meta_user_id} <Badge tone={statusTone(connection.status)}>{connection.status}</Badge></p>
+                    <p className="font-medium">{connection.name ?? connection.meta_user_id} <Badge tone="gray">{PLATFORM_LABELS[connection.platform]}</Badge> <Badge tone={statusTone(connection.status)}>{connection.status}</Badge></p>
                     <p className="mt-1 text-xs text-slate-500">
-                      Permissions: {describePermissions(connection)} · Expires: {connection.token_expires_at ? formatDateTime(connection.token_expires_at) : 'unknown'} · Validated {formatDateTime(connection.last_validated_at)}
+                      {connection.platform === 'meta' ? `Permissions: ${describePermissions(connection)} · ` : ''}Expires: {connection.token_expires_at ? formatDateTime(connection.token_expires_at) : 'unknown'} · Validated {formatDateTime(connection.last_validated_at)}
                     </p>
                     {connection.last_error && <p className="mt-1 text-xs text-red-600">{connection.last_error}</p>}
                   </div>
@@ -101,7 +134,7 @@ function Connections() {
                       variant="secondary"
                       loading={busyKey === connection.id}
                       onClick={() => perform(connection.id, async () => {
-                        const synced = await api.post<{ synced: number }>(`/meta/connections/${connection.id}/sync`);
+                        const synced = await api.post<{ synced: number }>(`${connectionsPathFor(connection.platform)}/${connection.id}/sync`);
                         return `Synced ${synced.synced} ad accounts.`;
                       })}
                     >
@@ -109,7 +142,7 @@ function Connections() {
                     </Button>
                     <Button
                       variant="ghost"
-                      onClick={() => confirm('Disconnect this Meta account? Collected data is kept.') && perform(connection.id, () => api.remove(`/meta/connections/${connection.id}`))}
+                      onClick={() => confirm(`Disconnect this ${PLATFORM_LABELS[connection.platform]} connection? Its ad accounts and their collected ads are removed.`) && perform(connection.id, () => api.remove(`${connectionsPathFor(connection.platform)}/${connection.id}`))}
                     >
                       Disconnect
                     </Button>
@@ -121,13 +154,13 @@ function Connections() {
         </Card>
 
         <Card title="Ad accounts">
-          {!accounts || accounts.length === 0 ? <Empty title="No ad accounts" hint="Connect Meta and sync to list your ad accounts." /> : (
+          {!accounts || accounts.length === 0 ? <Empty title="No ad accounts" hint="Connect Meta or TikTok to list your ad accounts." /> : (
             <ul className="divide-y divide-slate-100">
               {accounts.map((account) => (
                 <li key={account.id} className="flex items-center justify-between gap-3 py-2.5">
                   <div>
-                    <p className="text-sm font-medium">{account.name ?? account.meta_account_id}</p>
-                    <p className="text-xs text-slate-500">{account.meta_account_id} · {account.currency} · {account.timezone_name}{account.business_name ? ` · ${account.business_name}` : ''}</p>
+                    <p className="text-sm font-medium">{account.name ?? displayAccountId(account.meta_account_id)} <Badge tone="gray">{PLATFORM_LABELS[account.platform]}</Badge></p>
+                    <p className="text-xs text-slate-500">{displayAccountId(account.meta_account_id)} · {account.currency} · {account.timezone_name}{account.business_name ? ` · ${account.business_name}` : ''}</p>
                   </div>
                   <label className="flex items-center gap-2 text-sm">
                     <input

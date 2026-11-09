@@ -2,6 +2,8 @@
 
 export type NullableNumber = number | null;
 
+export type AdPlatform = 'meta' | 'tiktok';
+
 export interface MediaItem {
   kind: string;
   status: string;
@@ -12,6 +14,7 @@ export interface MediaItem {
 export interface AdListItem {
   id: string;
   ad_account_id: string;
+  platform: AdPlatform;
   meta_ad_id: string;
   name: string | null;
   headline: string | null;
@@ -37,6 +40,7 @@ export interface AdsPage {
 export interface AdAccount {
   id: string;
   connection_id: string;
+  platform: AdPlatform;
   meta_account_id: string;
   name: string | null;
   currency: string | null;

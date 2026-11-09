@@ -5,13 +5,13 @@ import type {
 /** Builders for API-shaped test data. Pass overrides for the fields a test cares about. */
 
 export const makeAd = (overrides: Partial<AdListItem> = {}): AdListItem => ({
-  id: 'ad-1', ad_account_id: 'acc-1', meta_ad_id: 'meta-1', name: 'Summer Sale', headline: 'Big discounts', campaign_name: 'Summer Campaign',
+  id: 'ad-1', ad_account_id: 'acc-1', platform: 'meta', meta_ad_id: 'meta-1', name: 'Summer Sale', headline: 'Big discounts', campaign_name: 'Summer Campaign',
   effective_status: 'ACTIVE', format: 'image', platforms: ['facebook'], total_spend: 100, total_impressions: 10_000, total_link_clicks: 200,
   total_purchases: 0, total_revenue: 0, media: [], ...overrides,
 });
 
 export const makeAccount = (overrides: Partial<AdAccount> = {}): AdAccount => ({
-  id: 'acc-1', connection_id: 'conn-1', meta_account_id: 'act_1', name: 'Main account', currency: 'USD', timezone_name: 'UTC', business_name: null, selected: true, ...overrides,
+  id: 'acc-1', connection_id: 'conn-1', platform: 'meta', meta_account_id: 'act_1', name: 'Main account', currency: 'USD', timezone_name: 'UTC', business_name: null, selected: true, ...overrides,
 });
 
 export const makeRun = (overrides: Partial<CollectionRun> = {}): CollectionRun => ({

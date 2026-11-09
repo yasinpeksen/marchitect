@@ -69,10 +69,10 @@ describe('SearchPanel', () => {
     expect(handlers.onMatchChange).toHaveBeenCalledWith('all');
     fireEvent.change(screen.getByLabelText('Ad account'), { target: { value: 'acc-1' } });
     expect(handlers.onAccountChange).toHaveBeenCalledWith('acc-1');
-    fireEvent.change(screen.getByLabelText('Meta collection range'), { target: { value: '90' } });
+    fireEvent.change(screen.getByLabelText('Collection range'), { target: { value: '90' } });
     expect(handlers.onLookbackChange).toHaveBeenCalledWith(90);
     fireEvent.click(screen.getByRole('button', { name: /Save/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Collect from Meta/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Collect ads/ }));
     expect(handlers.onSave).toHaveBeenCalled();
     expect(handlers.onCollect).toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'old, search' }));
@@ -82,7 +82,7 @@ describe('SearchPanel', () => {
   it('disables saving and collecting without keywords and says when no account is connected', () => {
     render(<SearchPanel {...props()} tags={[]} accounts={[]} />);
     expect(screen.getByRole('button', { name: /Save/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Collect from Meta/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Collect ads/ })).toBeDisabled();
     expect(screen.getByText('No accounts connected')).toBeInTheDocument();
   });
 });
@@ -106,7 +106,7 @@ describe('AdBrowser', () => {
     arrange([]);
     const { unmount } = render(<AdBrowser mode="search" />);
     expect(screen.getByText('No ads collected yet')).toBeInTheDocument();
-    expect(screen.getByText(/Use “Collect from Meta”/)).toBeInTheDocument();
+    expect(screen.getByText(/Use “Collect ads”/)).toBeInTheDocument();
     unmount();
     render(<AdBrowser mode="library" />);
     expect(screen.getByText(/Run a search on the Ad Search page/)).toBeInTheDocument();
@@ -121,16 +121,69 @@ describe('AdBrowser', () => {
     expect(vi.mocked(useData).mock.calls.some(([path]) => String(path).includes('keywords=summer%2Csale'))).toBe(true);
   });
 
-  it('starts a Meta collection and shows progress', async () => {
+  it('starts a collection for the enabled account and shows progress', async () => {
     arrange();
     navigationMock.searchParameters = new URLSearchParams('q=summer');
     dataState.responses['/collection-runs/run-1'] = makeRun({ status: 'running', progress: 40 });
     apiMock.post.mockResolvedValue({ run: makeRun({ status: 'queued' }), existing_matches: 4, reused: false });
     render(<AdBrowser mode="search" />);
-    fireEvent.click(screen.getByRole('button', { name: /Collect from Meta/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Collect ads/ }));
     await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith('/search/collect', expect.objectContaining({ keywords: ['summer'], ad_account_id: 'acc-1' })));
     expect(await screen.findByText(/4 matching ads already stored/)).toBeInTheDocument();
     expect(screen.getByText('40%')).toBeInTheDocument();
+  });
+
+  it('one click collects from every enabled account on every platform', async () => {
+    arrange();
+    dataState.responses['/ad-accounts'] = [
+      makeAccount({ id: 'meta-1' }),
+      makeAccount({ id: 'tt-1', platform: 'tiktok', meta_account_id: 'tiktok:700', name: 'Shoe Shop' }),
+      makeAccount({ id: 'off-1', selected: false }),
+    ];
+    navigationMock.searchParameters = new URLSearchParams('q=summer');
+    apiMock.post.mockImplementation((_path: string, body: { ad_account_id: string }) =>
+      Promise.resolve({ run: makeRun({ id: `run-${body.ad_account_id}`, status: 'queued' }), existing_matches: 2, reused: false }));
+    render(<AdBrowser mode="search" />);
+    expect(screen.getAllByRole('button', { name: /Collect/ })).toHaveLength(1); // a single collect button
+    fireEvent.click(screen.getByRole('button', { name: /Collect ads/ }));
+    expect(await screen.findByText('4 matching ads already stored. Collecting fresh data from Meta and TikTok…')).toBeInTheDocument();
+    expect(apiMock.post.mock.calls.map(([, body]) => body.ad_account_id)).toEqual(['meta-1', 'tt-1']);
+    expect(vi.mocked(useData).mock.calls.some(([path]) => path === '/collection-runs/run-tt-1')).toBe(true);
+    expect(vi.mocked(useData).mock.calls.some(([path]) => path === '/collection-runs/run-meta-1')).toBe(true);
+  });
+
+  it('collects only from the chosen account', async () => {
+    arrange();
+    dataState.responses['/ad-accounts'] = [makeAccount({ id: 'meta-1' }), makeAccount({ id: 'tt-1', platform: 'tiktok', meta_account_id: 'tiktok:700' })];
+    navigationMock.searchParameters = new URLSearchParams('q=summer&account=tt-1');
+    apiMock.post.mockResolvedValue({ run: makeRun(), existing_matches: 0, reused: false });
+    render(<AdBrowser mode="search" />);
+    fireEvent.click(screen.getByRole('button', { name: /Collect ads/ }));
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledTimes(1));
+    expect(apiMock.post).toHaveBeenCalledWith('/search/collect', expect.objectContaining({ ad_account_id: 'tt-1' }));
+    expect(await screen.findByText(/Collecting fresh data from TikTok/)).toBeInTheDocument();
+  });
+
+  it('keeps the runs that started and reports the account that failed to start', async () => {
+    arrange();
+    dataState.responses['/ad-accounts'] = [makeAccount({ id: 'meta-1' }), makeAccount({ id: 'tt-1', platform: 'tiktok', meta_account_id: 'tiktok:700' })];
+    navigationMock.searchParameters = new URLSearchParams('q=summer');
+    apiMock.post.mockImplementation((_path: string, body: { ad_account_id: string }) =>
+      body.ad_account_id === 'tt-1' ? Promise.reject(new Error('TikTok connection is no longer valid')) : Promise.resolve({ run: makeRun(), existing_matches: 1, reused: false }));
+    render(<AdBrowser mode="search" />);
+    fireEvent.click(screen.getByRole('button', { name: /Collect ads/ }));
+    expect(await screen.findByText('TikTok connection is no longer valid')).toBeInTheDocument();
+    expect(screen.getByText(/1 matching ads already stored/)).toBeInTheDocument();
+  });
+
+  it('saves the search against the first enabled account when none is chosen', async () => {
+    arrange();
+    navigationMock.searchParameters = new URLSearchParams('q=summer');
+    apiMock.post.mockResolvedValue({});
+    vi.spyOn(window, 'prompt').mockReturnValue('Named');
+    render(<AdBrowser mode="search" />);
+    fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith('/saved-searches', expect.objectContaining({ ad_account_id: 'acc-1' })));
   });
 
   it('says when an identical collection is already running', async () => {
@@ -138,7 +191,7 @@ describe('AdBrowser', () => {
     navigationMock.searchParameters = new URLSearchParams('q=summer');
     apiMock.post.mockResolvedValue({ run: makeRun({ status: 'running' }), existing_matches: 0, reused: true });
     render(<AdBrowser mode="search" />);
-    fireEvent.click(screen.getByRole('button', { name: /Collect from Meta/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Collect ads/ }));
     expect(await screen.findByText(/already running/)).toBeInTheDocument();
   });
 
@@ -147,13 +200,13 @@ describe('AdBrowser', () => {
     dataState.responses['/ad-accounts'] = [];
     navigationMock.searchParameters = new URLSearchParams('q=summer');
     const { unmount } = render(<AdBrowser mode="search" />);
-    fireEvent.click(screen.getByRole('button', { name: /Collect from Meta/ }));
-    expect(await screen.findByText(/Connect a Meta ad account first/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Collect ads/ }));
+    expect(await screen.findByText(/Connect and enable an ad account first/)).toBeInTheDocument();
     unmount();
     dataState.responses['/ad-accounts'] = [makeAccount()];
     apiMock.post.mockRejectedValue(new Error('Server exploded'));
     render(<AdBrowser mode="search" />);
-    fireEvent.click(screen.getByRole('button', { name: /Collect from Meta/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Collect ads/ }));
     expect(await screen.findByText('Server exploded')).toBeInTheDocument();
   });
 

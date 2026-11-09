@@ -18,7 +18,7 @@ class AdAccountsController {
   async list(@CurrentUser() user: AuthUser) {
     const response = await this.supabase
       .from('ad_accounts')
-      .select('id,connection_id,meta_account_id,name,currency,timezone_name,account_status,business_id,business_name,selected')
+      .select('id,connection_id,platform,meta_account_id,name,currency,timezone_name,account_status,business_id,business_name,selected')
       .eq('user_id', user.id)
       .order('name');
     return must(response, 'list ad accounts');

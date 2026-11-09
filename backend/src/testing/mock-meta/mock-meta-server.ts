@@ -3,11 +3,13 @@ import {
   AD_SETS, ADS, BUSINESS_ACCOUNT, CAMPAIGNS, IMAGES, MOCK_CODES, MOCK_TOKENS, MOCK_USER, MOCK_BUSINESS, MP4_BYTES, PERSONAL_ACCOUNT, PNG_BYTES, VIDEOS,
 } from './fixtures';
 import { buildInsightRows } from './insights';
+import { createTikTokRoutes } from './tiktok-mock';
 
 /**
  * A small fake of the Meta Graph / Marketing API for test and development environments.
  * It implements only the endpoints this app calls, with deterministic data, pagination,
- * asynchronous insight reports, OAuth, error injection and a request log.
+ * asynchronous insight reports, OAuth, error injection and a request log. It also serves a fake TikTok
+ * Marketing API under /open_api/v1.3/ (see tiktok-mock.ts).
  * Point the app at it with META_GRAPH_BASE_URL / META_DIALOG_BASE_URL / MEDIA_ALLOWED_HOSTS.
  */
 
@@ -92,6 +94,7 @@ export function applyFiltering<Item extends Record<string, unknown>>(
 export function createMockMetaServer(options: MockMetaOptions) {
   const publicUrl = options.publicUrl.replace(/\/$/, '');
   const pageSize = options.pageSize ?? 2;
+  const tiktokRoutes = createTikTokRoutes({ publicUrl, pageSize });
   const requests: RecordedRequest[] = [];
   let failures: InjectedFailure[] = [];
   let latencyMs = 0;
@@ -295,8 +298,14 @@ export function createMockMetaServer(options: MockMetaOptions) {
     const injected = failures.find((failure) => failure.remaining > 0 && signature.includes(failure.match));
     if (injected) {
       injected.remaining--;
+      if (request.path.startsWith('open_api/')) {
+        return { status: injected.status, body: { code: Number(injected.error.code ?? 50_002), message: String(injected.error.message ?? 'Injected failure'), request_id: 'mock-request' } };
+      }
       return { status: injected.status, body: { error: { type: 'OAuthException', fbtrace_id: 'MOCKTRACE', ...injected.error } } };
     }
+
+    const tiktok = request.method === 'GET' ? tiktokRoutes(request) : null;
+    if (tiktok) return tiktok;
 
     if (request.method === 'GET' && request.path.endsWith('dialog/oauth')) {
       const redirect = new URL(request.query.redirect_uri);
@@ -343,7 +352,7 @@ export function createMockMetaServer(options: MockMetaOptions) {
       const jsonFields = incoming.headers['content-type']?.includes('json') ? parseJson<Record<string, unknown>>(bodyText, {}) : {};
       const query: Record<string, string> = { ...Object.fromEntries(url.searchParams), ...formFields };
       const path = url.pathname.replace(VERSION_PREFIX, '').replace(/^\//, '');
-      const request: Request = { method: incoming.method ?? 'GET', path, query, token: query.access_token };
+      const request: Request = { method: incoming.method ?? 'GET', path, query, token: query.access_token ?? incoming.headers['access-token']?.toString() };
       if (!path.startsWith('__admin')) requests.push({ method: request.method, path, query: { ...query, access_token: query.access_token ? '[redacted]' : '' } });
       const result = route(request, { ...formFields, ...jsonFields });
       if (latencyMs > 0 && !path.startsWith('__admin')) await new Promise((resolve) => setTimeout(resolve, latencyMs));

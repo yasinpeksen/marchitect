@@ -2,7 +2,7 @@ import { AppConfig } from '../common/app-config';
 import { SupabaseService } from '../common/supabase.service';
 import { MetaApiClient, MetaApiError } from '../meta/meta-api.client';
 import { buildTestConfig, FakeSupabase } from '../testing/fake-supabase';
-import { AdCollectorService, buildAdRow, buildContainFilter, buildInFilter, normalizeKeywordList, nullIfBlank, toNullableNumber } from './ad-collector.service';
+import { AdCollectorService, buildAdRow, buildContainFilter, buildInFilter, normalizeKeywordList, nullIfBlank, toNullableNumber, upsertAndMapIds } from './ad-collector.service';
 
 describe('collector helpers', () => {
   it('nullIfBlank turns blank-ish values into null', () => {
@@ -23,6 +23,23 @@ describe('collector helpers', () => {
   });
   it('normalizeKeywordList lowercases, trims and de-duplicates', () => {
     expect(normalizeKeywordList([' Sale ', 'sale', '', 'NEW'])).toEqual(['sale', 'new']);
+  });
+});
+
+describe('upsertAndMapIds', () => {
+  it('upserts in batches keyed on user and external id, and maps external id -> uuid', async () => {
+    const fake = new FakeSupabase();
+    fake.respond('ads', { data: [{ id: 'uuid-1', meta_ad_id: 'a1' }] }).respond('ads', { data: [{ id: 'uuid-2', meta_ad_id: 'a2' }] });
+    const rows = Array.from({ length: 301 }, (_unused, index) => ({ meta_ad_id: `a${index}` }));
+    const mapping = await upsertAndMapIds(fake as unknown as SupabaseService, 'ads', 'meta_ad_id', rows);
+    expect(fake.callsTo('ads')).toHaveLength(2);
+    expect(fake.argumentsOf('ads', 'upsert')?.[1]).toEqual({ onConflict: 'user_id,meta_ad_id' });
+    expect([...mapping]).toEqual([['a1', 'uuid-1'], ['a2', 'uuid-2']]);
+  });
+  it('does nothing for no rows', async () => {
+    const fake = new FakeSupabase();
+    expect((await upsertAndMapIds(fake as unknown as SupabaseService, 'ads', 'meta_ad_id', [])).size).toBe(0);
+    expect(fake.calls).toHaveLength(0);
   });
 });
 

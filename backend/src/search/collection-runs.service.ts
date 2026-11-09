@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { must, SupabaseService } from '../common/supabase.service';
-import { CollectionRunRow } from '../common/types';
+import { AdPlatform, CollectionRunRow } from '../common/types';
 import { NotificationsService } from '../notifications/notifications.service';
 
 export interface NewRun {
@@ -54,6 +54,12 @@ export class CollectionRunsService {
       .contains('keywords', keywords)
       .order('created_at', { ascending: false });
     return must<CollectionRunRow[]>(response, 'find active run').find((run) => run.keywords.length === keywords.length) ?? null;
+  }
+
+  /** Which ad platform an ad account belongs to (`meta` when the account cannot be found, so the Meta path reports it). */
+  async platformOfAccount(userId: string, adAccountId: string): Promise<AdPlatform> {
+    const response = await this.supabase.from('ad_accounts').select('platform').eq('id', adAccountId).eq('user_id', userId).maybeSingle();
+    return must<{ platform: AdPlatform } | null>(response, 'load ad account platform')?.platform ?? 'meta';
   }
 
   async update(runId: string, patch: Record<string, unknown>): Promise<void> {

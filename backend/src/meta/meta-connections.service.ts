@@ -28,7 +28,7 @@ export class MetaConnectionsService {
   ) {}
 
   async list(userId: string) {
-    const response = await this.supabase.from('meta_connections').select(PUBLIC_COLUMNS).eq('user_id', userId).order('created_at');
+    const response = await this.supabase.from('meta_connections').select(PUBLIC_COLUMNS).eq('user_id', userId).eq('platform', 'meta').order('created_at');
     return must(response, 'list connections');
   }
 
@@ -132,7 +132,7 @@ export class MetaConnectionsService {
   }
 
   async remove(userId: string, connectionId: string): Promise<void> {
-    const response = await this.supabase.from('meta_connections').delete().eq('id', connectionId).eq('user_id', userId).select('id');
+    const response = await this.supabase.from('meta_connections').delete().eq('id', connectionId).eq('user_id', userId).eq('platform', 'meta').select('id');
     if (must<{ id: string }[]>(response, 'delete connection').length === 0) throw new NotFoundException('Connection not found');
     await this.audit.record(userId, 'meta.disconnect', 'meta_connection', connectionId);
   }
@@ -144,6 +144,7 @@ export class MetaConnectionsService {
       .select('id,token_encrypted,graph_version,status')
       .eq('id', connectionId)
       .eq('user_id', userId)
+      .eq('platform', 'meta')
       .maybeSingle();
     const connection = must<Pick<MetaConnectionRow, 'id' | 'token_encrypted' | 'graph_version' | 'status'> | null>(response, 'load connection');
     if (!connection) throw new NotFoundException('Connection not found');

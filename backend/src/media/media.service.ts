@@ -13,8 +13,11 @@ import { QueueService } from '../jobs/queues';
 import { MetaApiClient, MetaApiError } from '../meta/meta-api.client';
 import { MetaConnectionsService } from '../meta/meta-connections.service';
 
-/** Only fetch from Meta CDN hosts (SSRF guard); never follow arbitrary URLs. */
-export const ALLOWED_MEDIA_HOSTS = [/\.fbcdn\.net$/, /\.fbsbx\.com$/, /\.facebook\.com$/, /\.cdninstagram\.com$/, /^facebook\.com$/];
+/** Only fetch from Meta / TikTok CDN hosts (SSRF guard); never follow arbitrary URLs. */
+export const ALLOWED_MEDIA_HOSTS = [
+  /\.fbcdn\.net$/, /\.fbsbx\.com$/, /\.facebook\.com$/, /\.cdninstagram\.com$/, /^facebook\.com$/,
+  /\.tiktokcdn\.com$/, /\.tiktokcdn-us\.com$/, /\.ibyteimg\.com$/, /\.byteimg\.com$/,
+];
 
 const EXTENSION_BY_MIME: Record<string, string> = {
   'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
@@ -214,6 +217,20 @@ export class MediaService {
 
   /** Resolve a fresh download URL through authorised Meta endpoints only. */
   async resolveSource(userId: string, adAccountId: string, asset: Pick<StorageAssetRow, 'dedupe_key' | 'source_ref'>): Promise<string> {
+    const key = asset.dedupe_key;
+    if (key.startsWith('video:') || key.startsWith('imagehash:')) return this.resolveMetaSource(userId, adAccountId, asset);
+    // Creative image / thumbnail URLs are stored on the creative row (Meta and TikTok alike).
+    const creative = must<Pick<CreativeRow, 'image_url' | 'thumbnail_url'> | null>(
+      await this.supabase.from('ad_creatives').select('image_url,thumbnail_url').eq('id', asset.source_ref).eq('user_id', userId).maybeSingle(),
+      'load creative',
+    );
+    const url = key.startsWith('thumb:') ? creative?.thumbnail_url : creative?.image_url;
+    if (!url) throw new MediaUnavailableError('Creative has no media URL');
+    return url;
+  }
+
+  /** Meta videos and image-library hashes need a fresh URL from the Graph API. */
+  private async resolveMetaSource(userId: string, adAccountId: string, asset: Pick<StorageAssetRow, 'dedupe_key' | 'source_ref'>): Promise<string> {
     const { context, account } = await this.connections.contextForAccount(userId, adAccountId);
     const key = asset.dedupe_key;
     if (key.startsWith('video:')) {
@@ -221,18 +238,9 @@ export class MediaService {
       if (!video.source) throw new MediaUnavailableError('Meta did not return a downloadable source for this video (permissions or ownership)');
       return video.source;
     }
-    if (key.startsWith('imagehash:')) {
-      const images = await this.meta.listAdImages(context, account.meta_account_id, [asset.source_ref as string]);
-      const url = images[0]?.url;
-      if (!url) throw new MediaUnavailableError('Image hash not found in the ad account image library');
-      return url;
-    }
-    const creative = must<Pick<CreativeRow, 'image_url' | 'thumbnail_url'> | null>(
-      await this.supabase.from('ad_creatives').select('image_url,thumbnail_url').eq('id', asset.source_ref).eq('user_id', userId).maybeSingle(),
-      'load creative',
-    );
-    const url = key.startsWith('thumb:') ? creative?.thumbnail_url : creative?.image_url;
-    if (!url) throw new MediaUnavailableError('Creative has no media URL');
+    const images = await this.meta.listAdImages(context, account.meta_account_id, [asset.source_ref as string]);
+    const url = images[0]?.url;
+    if (!url) throw new MediaUnavailableError('Image hash not found in the ad account image library');
     return url;
   }
 

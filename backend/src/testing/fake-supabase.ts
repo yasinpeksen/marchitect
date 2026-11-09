@@ -102,6 +102,7 @@ export function buildTestConfig(overrides: Record<string, unknown> = {}) {
     metaMaxRetries: 2,
     metaRetryBaseMs: 1,
     adLibraryEnabled: false,
+    tiktokApiBaseUrl: 'https://tiktok.example.test/open_api/v1.3',
     frontendUrl: 'http://localhost:3000',
     schedulerTickMs: 1000,
     ...overrides,

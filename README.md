@@ -1,6 +1,6 @@
 # Meta Ads Intelligence
 
-Collect, store, search, monitor and analyse Meta ads from ad accounts you are authorised to access.
+Collect, store, search, monitor and analyse Meta and TikTok ads from ad accounts you are authorised to access.
 
 | Layer | Tech |
 |---|---|
@@ -9,6 +9,7 @@ Collect, store, search, monitor and analyse Meta ads from ad accounts you are au
 | Auth / DB / Files | Supabase Auth, PostgreSQL (RLS), Storage (private bucket) |
 | Jobs | BullMQ + Redis; separate worker process; DB-persisted schedules |
 | Meta | Marketing API (Graph API, version configurable) |
+| TikTok | Marketing API v1.3 (access token + advertiser ids) |
 
 ```
 browser ──► frontend (Next.js :3000) ──► backend API (NestJS :3001) ──► Supabase (Postgres, Storage, Auth)
@@ -113,7 +114,7 @@ and cursor pagination, creatives, ad images, videos, synchronous and **asynchron
 dynamic-creative asset breakdowns, OAuth code + long-lived token exchange, login dialog, Ad Library) plus media files, error injection
 (`POST /__admin/fail`), latency (`/__admin/latency`) and a request log (`/__admin/requests`). You can run it standalone for manual development:
 `docker compose -f docker-compose.yml -f docker-compose.test.yml up mock-meta`, then point a local backend at `http://localhost:4010`.
-Suites in `backend/test/integration`: Meta connections and OAuth, the full collection pipeline (search, persist, insights, media into Storage,
+Suites in `backend/test/integration`: TikTok (connect, collect, analytics, media, scheduling, failures, isolation), Meta connections and OAuth, the full collection pipeline (search, persist, insights, media into Storage,
 analytics, idempotency, async reports), resilience (retries, partial results, expired/forbidden tokens), scheduler (worker ticks, no duplicate
 slots, overlap guard, pause/resume, failure notifications) and security/infrastructure (RLS, tenant isolation, private storage, Redis/BullMQ, worker health).
 
@@ -125,8 +126,8 @@ slots, overlap guard, pause/resume, failure notifications) and security/infrastr
 
 ## Using the app
 1. Register / sign in (email + password or Google). Password reset is on the login page.
-2. **Meta Connections**: connect with Facebook login (needs `META_APP_ID/SECRET`) or paste a user / system-user token. Required permission `ads_read`; `business_management` is recommended. Select the ad accounts to use.
-3. **Ad Search**: type keywords (tags). Results from your collected database appear instantly; **Collect from Meta** queues a background run (watch progress and errors live).
+2. **Connections**: connect Meta with Facebook login (needs `META_APP_ID/SECRET`) or paste a user / system-user token (required permission `ads_read`; `business_management` is recommended). Connect TikTok by pasting a Marketing API access token and the advertiser ids it may read. Select the ad accounts to use.
+3. **Ad Search**: type keywords (tags). Results from your collected database appear instantly; the single **Collect ads** button queues a background run for every enabled Meta and TikTok account (or just the account you pick), with live progress and errors.
 4. **Scheduler**: recurring collections every X hours/days/weeks/months in a chosen timezone, with pause/resume/run-now and execution history. Failures retry (3×, exponential backoff) then notify you; 5 consecutive failures auto-pause the schedule.
 5. **Ad Library / ad page**: filters, sorting, previews and a full per-ad analytics dashboard (date ranges, breakdowns, fatigue, raw JSON).
 
@@ -135,6 +136,13 @@ slots, overlap guard, pause/resume, failure notifications) and security/infrastr
 - Keyword search on Meta uses `CONTAIN` filters on ad, campaign and ad-set **names** (the Marketing API cannot filter by creative text). Headline / primary-text matching works on already-collected ads.
 - Insights: sync requests for short ranges, **asynchronous report runs** for ≥31 days or ≥100 ads. Rate-limit headers are honoured; transient/rate-limit errors retry with exponential backoff and jitter.
 - Competitor research via the Ad Library is an optional, separate endpoint (`META_AD_LIBRARY_ENABLED=true`), subject to Meta’s eligibility and without performance metrics.
+
+## TikTok behaviour
+- Auth: a TikTok for Business Marketing API access token plus the advertiser ids to read (copy them from Ads Manager). The token is checked with `advertiser/info`, stored encrypted and never returned. No OAuth flow yet.
+- Search: like Meta, keywords match **names** of ads, campaigns and ad groups (`filtering.ad_name|campaign_name|adgroup_name`); headline / copy matching works on collected ads.
+- Data: ad copy, call to action, landing page, cover / image URLs (stored in the private bucket), daily metrics and a range snapshot (spend, impressions, reach, clicks, video quartiles, average play time). Conversion metrics (purchases, revenue, installs) are **not requested and stay `null`**, so ROAS / CPA are empty for TikTok ads. Videos themselves are not downloaded.
+- Insights run in 30-day windows (TikTok's limit for daily reports). Rate limits and transient errors retry with backoff; an invalid token marks the connection expired.
+- Test / dev: the mock server also serves `/open_api/v1.3/...`; set `TIKTOK_API_BASE_URL=http://mock-meta:4010/open_api/v1.3` (already in `docker-compose.test.yml`). The behaviour follows TikTok's public docs and has **not** been verified against the live API.
 
 ## Production notes
 - Terminate TLS at a reverse proxy; set `FRONTEND_URL`, `API_URL`, `CORS_ORIGINS`, `META_OAUTH_REDIRECT_URI` to public HTTPS URLs and add them to Meta and Supabase allow-lists.

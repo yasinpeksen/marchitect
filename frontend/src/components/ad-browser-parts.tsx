@@ -1,13 +1,14 @@
 'use client';
 import { Save, Zap } from 'lucide-react';
 import { AdFilters, toggleValue } from '@/lib/ad-filters';
+import { accountLabel } from '@/lib/collection-targets';
 import type { AdAccount, Campaign, SearchHistoryEntry } from '@/lib/types';
 import { TagInput } from './tag-input';
 import { Button, Card, Field } from './ui';
 
 const FORMATS = ['image', 'video', 'carousel', 'dynamic'];
 const STATUSES = ['ACTIVE', 'PAUSED', 'ARCHIVED', 'WITH_ISSUES', 'DISAPPROVED'];
-const PLATFORMS = ['facebook', 'instagram', 'audience_network', 'messenger'];
+const PLATFORMS = ['facebook', 'instagram', 'audience_network', 'messenger', 'tiktok'];
 export const SORT_OPTIONS: [string, string][] = [
   ['recent', 'Most recent'], ['spend', 'Spend'], ['impressions', 'Impressions'], ['clicks', 'Link clicks'],
   ['ctr', 'CTR'], ['roas', 'ROAS'], ['revenue', 'Revenue'], ['purchases', 'Purchases'], ['name', 'Name'],
@@ -77,7 +78,7 @@ export interface SearchPanelProps {
   onCollect: () => void;
 }
 
-/** Keyword-first search box with account, match mode, collection range and the Meta collection trigger. */
+/** Keyword-first search box with account, match mode, collection range and the single "Collect ads" trigger (Meta and TikTok). */
 export function SearchPanel(props: SearchPanelProps) {
   const { tags, accounts, history } = props;
   return (
@@ -91,18 +92,18 @@ export function SearchPanel(props: SearchPanelProps) {
         </Field>
         <Field label="Ad account">
           <select className="input w-56" value={props.accountId} onChange={(event) => props.onAccountChange(event.target.value)}>
-            <option value="">{accounts?.length ? 'All / default' : 'No accounts connected'}</option>
-            {accounts?.map((account) => <option key={account.id} value={account.id}>{account.name ?? account.meta_account_id}</option>)}
+            <option value="">{accounts?.length ? 'All enabled accounts' : 'No accounts connected'}</option>
+            {accounts?.map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}
           </select>
         </Field>
-        <Field label="Meta collection range">
+        <Field label="Collection range">
           <select className="input w-44" value={props.lookbackDays} onChange={(event) => props.onLookbackChange(Number(event.target.value))}>
             {LOOKBACK_OPTIONS.map(([days, label]) => <option key={days} value={days}>{label}</option>)}
           </select>
         </Field>
         <div className="ml-auto flex gap-2">
           <Button variant="secondary" onClick={props.onSave} disabled={tags.length === 0}><Save className="h-4 w-4" /> Save</Button>
-          <Button onClick={props.onCollect} loading={props.busy} disabled={tags.length === 0}><Zap className="h-4 w-4" /> Collect from Meta</Button>
+          <Button onClick={props.onCollect} loading={props.busy} disabled={tags.length === 0}><Zap className="h-4 w-4" /> Collect ads</Button>
         </div>
       </div>
       {history && history.length > 0 && (
@@ -116,7 +117,7 @@ export function SearchPanel(props: SearchPanelProps) {
         </div>
       )}
       <p className="mt-3 text-xs text-slate-500">
-        Results below come instantly from your collected database. “Collect from Meta” asynchronously fetches matching ads, creatives, insights and media from your authorised ad accounts.
+        Results below come instantly from your collected database. “Collect ads” asynchronously fetches matching ads, creatives, insights and media from your connected Meta and TikTok ad accounts.
       </p>
     </Card>
   );

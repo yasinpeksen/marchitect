@@ -8,9 +8,9 @@ Status date: 2026-11-07. **Read “Verification status” first: the Meta integr
 |---|---|
 | ESLint, zero warnings (backend + frontend; naming, no `any`, complexity, floating promises, react-hooks, Next rules) | Pass |
 | TypeScript compile (backend, frontend) and `next build` | Pass |
-| Backend unit tests (527, incl. mock Meta server) with coverage thresholds (97% statements / 95% functions) | Pass |
-| Frontend unit tests (278: lib, components, every page) with coverage thresholds (95% statements / 90% functions) | Pass |
-| Integration tests against the real stack (local Supabase, Redis, backend, worker) with a **mock Meta Graph API** (87 tests: connections/OAuth/Ad Library, full collection pipeline incl. media in Storage and async insights, resilience, scheduler, security/RLS/Redis/worker) | Pass |
+| Backend unit tests (611, incl. mock Meta server) with coverage thresholds (97% statements / 95% functions) | Pass |
+| Frontend unit tests (299: lib, components, every page) with coverage thresholds (95% statements / 90% functions) | Pass |
+| Integration tests against the real stack (local Supabase, Redis, backend, worker) with a **mock Meta Graph API** (99 tests: TikTok connect/collect/analytics/media/scheduling/failures/isolation, connections/OAuth/Ad Library, full collection pipeline incl. media in Storage and async insights, resilience, scheduler, security/RLS/Redis/worker) | Pass |
 | `docker compose run --rm test-e2e` black-box API checks | Pass |
 | Browser smoke of the UI (earlier run, before the naming/lint refactor) | Pass; re-run recommended |
 | Anything calling the **real** Meta Graph API | **Not verified**: no Meta credentials and no Meta API JSON specification were supplied. Behaviour is verified against the mock, which follows Meta's public documentation |
@@ -29,6 +29,7 @@ inserting, so two truly simultaneous requests can create two runs (harmless: col
 ## Completed features
 - **Auth**: Supabase email/password, Google, password reset; protected routes (cookie check) + API guard validating the Bearer token with Supabase; RLS on every table.
 - **Meta integration**: token connect and OAuth (long-lived exchange), permission check, encrypted token storage, ad-account sync (personal + Business Manager), campaigns/ad sets/ads/creatives/ad images/video endpoints, insights (sync + async reports), pagination, retries with exponential backoff + jitter, usage-header throttling, `appsecret_proof`, configurable Graph version, optional Ad Library endpoint.
+- **TikTok integration**: connect a Marketing API access token plus advertiser ids (validated through `/advertiser/info/`, stored AES-256-GCM encrypted), one ad account per advertiser, search by ad / campaign / ad group name (`ad/get`, `campaign/get`, `adgroup/get` with name filters), creative text, call to action, landing page and cover/image URLs (`file/video/ad/info`, `file/image/ad/info`), daily metrics and range snapshot from `report/integrated/get` (30-day windows). TikTok runs go through the same orchestrator, progress tracking, scheduler, media and analytics as Meta; one **Collect ads** button on Ad Search starts a run for every enabled account on every platform. Ads, accounts and connections carry a `platform` column; TikTok ids are stored with a `tiktok:` prefix in the shared `meta_*_id` columns.
 - **Collection pipeline**: validate keywords → report existing matches → Meta lookup (ad/campaign/ad-set name filters) → upsert hierarchy + creatives → daily metrics, range snapshot, breakdowns → media planning → analytics recalculation; live progress in `collection_runs`; partial-success accounting; results queryable as soon as ads are saved.
 - **Instant search**: indexed (`pg_trgm`) SQL function with multi-keyword any/all, filters (date, campaign, format, platform, status, spend/impressions/CTR/ROAS), sorting, pagination; tags with suggestions; saved searches; history.
 - **Scheduler**: persisted schedules, every X hours/days/weeks/months, timezone-aware (DST-safe, month-anchored), start/end, pause/resume/edit/delete/run-now, execution history, duplicate prevention (unique slot claim + overlap guard + deterministic job ids), BullMQ retries, failure notifications, auto-pause after 5 consecutive failures.
@@ -46,6 +47,8 @@ inserting, so two truly simultaneous requests can create two runs (harmless: col
 | Resumable (TUS) uploads for very large videos | Single multipart upload from a file-backed Blob | Marked with a `ponytail:` note in `media.service.ts`; add TUS if videos regularly exceed ~100 MB |
 | Meta creative-text search on Meta’s side | Name filters only | Marketing API cannot filter by headline/body; handled locally on collected ads |
 | Validation against the real Meta API | Not done | No credentials/spec supplied; mock-based integration tests instead |
+| Validation against the real TikTok API | Not done | No credentials; endpoint shapes, filters, metric names and error codes follow TikTok's Marketing API v1.3 as documented and are covered by the mock only |
+| TikTok OAuth, breakdowns, purchase / revenue / install metrics, video file download | Not implemented | Token paste only; report requests the basic metric set, so conversion metrics stay `null` (never 0); only cover images and images are stored |
 | Playwright/browser E2E, RLS policy tests, load tests | Not written | Time; RLS verified only by migration applying cleanly |
 | Storage object clean-up on ad deletion | Not implemented | Objects are content-addressed and may be shared |
 | Redis TLS / ACLs, secret-manager integration | Documented only | Deployment-specific |
@@ -54,6 +57,7 @@ inserting, so two truly simultaneous requests can create two runs (harmless: col
 - `GET /health` (public, no prefix) · `GET /auth/me`
 - `GET|PATCH /users/me`
 - `GET /meta/status` · `GET|POST /meta/connections` · `POST /meta/connections/:id/sync` · `DELETE /meta/connections/:id` · `GET /meta/oauth/url` · `GET /meta/oauth/callback` (public) · `GET /meta/ad-library/search`
+- `GET|POST /tiktok/connections` · `POST /tiktok/connections/:id/sync` · `DELETE /tiktok/connections/:id`
 - `GET /ad-accounts` · `PATCH /ad-accounts/:id`
 - `GET /campaigns` · `GET /ad-sets` · `GET /creatives/:id`
 - `GET /ads` (instant search/library) · `GET /ads/:id` · `GET /ads/:id/raw` · `POST /ads/:id/tags` · `DELETE /ads/:id/tags/:tagId`
@@ -62,6 +66,8 @@ inserting, so two truly simultaneous requests can create two runs (harmless: col
 - `GET|POST /saved-searches` · `PATCH|DELETE /saved-searches/:id` · `POST /saved-searches/:id/run`
 - `GET|POST /schedules` · `PATCH|DELETE /schedules/:id` · `POST /schedules/:id/run` · `GET /schedules/:id/executions`
 - `POST /media/retry` · `GET /notifications` · `POST /notifications/read`
+
+TikTok endpoints called (`/open_api/v1.3`): `GET /advertiser/info/`, `/campaign/get/`, `/adgroup/get/`, `/ad/get/`, `/file/video/ad/info/`, `/file/image/ad/info/`, `/report/integrated/get/`.
 
 Meta endpoints called: `GET /me`, `/me/permissions`, `/me/adaccounts`, `/me/businesses`, `/{business}/owned_ad_accounts|client_ad_accounts`, `/act_{id}`, `/act_{id}/campaigns|adsets|ads|adcreatives|adimages|insights` (+ async `POST` and `/{report_run_id}`), `/{video_id}`, `/?ids=`, `/debug_token`, `/oauth/access_token`, `/ads_archive` (optional).
 
@@ -84,4 +90,5 @@ See `.env.example` (documented inline). Required: `SUPABASE_URL`, `SUPABASE_ANON
 - Missed scheduled slots (downtime) collapse into a single catch-up run.
 - Instant search is substring matching, not stemming/ranking.
 - Meta budgets are stored in the account currency’s minor units as returned by the API.
+- TikTok: daily reports are limited to 30-day windows (split automatically); hook / hold rates are `null` because TikTok reports 2s / 6s views, not Meta's 3s / ThruPlay; deleting a connection removes its ad accounts and their ads (database cascade, same as Meta).
 - Docker Desktop must be running; local Supabase requires the Supabase CLI on the host.

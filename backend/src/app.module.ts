@@ -19,6 +19,7 @@ import { MetaIntegrationModule } from './meta/meta.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { SearchModule } from './search/search.module';
+import { TikTokIntegrationModule } from './tiktok/tiktok.module';
 import { UsersModule } from './users/users.module';
 
 export const loggerModule = LoggerModule.forRoot({
@@ -34,7 +35,7 @@ export const loggerModule = LoggerModule.forRoot({
 export const domainModules = [
   CommonModule, QueuesModule, UsersModule, MetaIntegrationModule, AdAccountsModule, CampaignsModule,
   AdvertisementsModule, CreativesModule, MediaStorageModule, SearchModule, SchedulerModule, AnalyticsModule,
-  InsightsModule, NotificationsModule,
+  InsightsModule, NotificationsModule, TikTokIntegrationModule,
 ];
 
 @Module({

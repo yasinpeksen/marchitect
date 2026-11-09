@@ -36,6 +36,16 @@ export const normalizeKeywordList = (keywords: string[]): string[] => [
   ...new Set(keywords.map((keyword) => keyword.trim().toLowerCase()).filter(Boolean)),
 ];
 
+/** Batched upsert keyed on (user_id, `externalIdColumn`); returns external id -> internal uuid. */
+export async function upsertAndMapIds(supabase: SupabaseService, table: string, externalIdColumn: string, rows: Record<string, unknown>[]): Promise<Map<string, string>> {
+  const idByExternalId = new Map<string, string>();
+  for (const part of chunk(rows, 300)) {
+    const response = await supabase.from(table).upsert(part, { onConflict: `user_id,${externalIdColumn}` }).select(`id,${externalIdColumn}`);
+    for (const row of must<Record<string, string>[]>(response, `upsert ${table}`)) idByExternalId.set(row[externalIdColumn], row.id);
+  }
+  return idByExternalId;
+}
+
 interface AdRowContext {
   userId: string;
   accountId: string;
@@ -233,12 +243,7 @@ export class AdCollectorService {
   }
 
   /** Batched upsert; returns metaId -> internal uuid. */
-  private async upsertAndMapIds(table: string, metaColumn: string, rows: Record<string, unknown>[]): Promise<Map<string, string>> {
-    const idByMetaId = new Map<string, string>();
-    for (const part of chunk(rows, 300)) {
-      const response = await this.supabase.from(table).upsert(part, { onConflict: `user_id,${metaColumn}` }).select(`id,${metaColumn}`);
-      for (const row of must<Record<string, string>[]>(response, `upsert ${table}`)) idByMetaId.set(row[metaColumn], row.id);
-    }
-    return idByMetaId;
+  private upsertAndMapIds(table: string, metaColumn: string, rows: Record<string, unknown>[]): Promise<Map<string, string>> {
+    return upsertAndMapIds(this.supabase, table, metaColumn, rows);
   }
 }

@@ -8,6 +8,7 @@ import { MediaService } from '../media/media.service';
 import { MetaApiError } from '../meta/meta-api.client';
 import { SchedulerService } from '../scheduler/scheduler.service';
 import { CollectionRunsService } from '../search/collection-runs.service';
+import { TikTokApiError } from '../tiktok/tiktok-api.client';
 import { CollectionOrchestrator } from './collection.orchestrator';
 import { AnalyticsJob, CollectionJob, InsightsRefreshJob, MediaJob, QUEUES, QueueService } from './queues';
 
@@ -16,7 +17,7 @@ const LOCK_RETRY_DELAY_MS = 30_000;
 
 /** Errors a retry cannot fix (bad token, missing permission, deleted objects) become unrecoverable. */
 export function toFatalError(error: unknown): Error {
-  if (error instanceof MetaApiError && (error.isAuth || error.isPermission)) return new UnrecoverableError(error.message);
+  if ((error instanceof MetaApiError || error instanceof TikTokApiError) && (error.isAuth || error.isPermission)) return new UnrecoverableError(error.message);
   if (error instanceof NotFoundException || error instanceof BadRequestException) return new UnrecoverableError(error.message);
   return error instanceof Error ? error : new Error(String(error));
 }

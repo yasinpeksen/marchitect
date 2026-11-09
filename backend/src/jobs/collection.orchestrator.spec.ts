@@ -4,8 +4,13 @@ import { MediaService } from '../media/media.service';
 import { MetaApiError } from '../meta/meta-api.client';
 import { MetaConnectionsService } from '../meta/meta-connections.service';
 import { CollectionRunsService } from '../search/collection-runs.service';
+import { TikTokApiError } from '../tiktok/tiktok-api.client';
+import { TikTokCollectorService } from '../tiktok/tiktok-collector.service';
+import { TikTokConnectionsService } from '../tiktok/tiktok-connections.service';
+import { TikTokInsightsService } from '../tiktok/tiktok-insights.service';
 import { CollectionOrchestrator, outcomeFor } from './collection.orchestrator';
 import { QueueService } from './queues';
+import { MetaRunSourceFactory, TikTokRunSourceFactory } from './run-sources';
 
 describe('outcomeFor', () => {
   it('is succeeded without errors and partial with any', () => {
@@ -21,6 +26,7 @@ const buildOrchestrator = () => {
   const runs = {
     get: jest.fn().mockResolvedValue(run), update: jest.fn().mockResolvedValue(undefined),
     saveSearchResults: jest.fn().mockResolvedValue(undefined), markFailed: jest.fn().mockResolvedValue(run),
+    platformOfAccount: jest.fn().mockResolvedValue('meta'),
   };
   const connections = { contextForAccount: jest.fn().mockResolvedValue({ account, context: { token: 'EAAx' } }), noteFailure: jest.fn() };
   const collector = {
@@ -35,11 +41,20 @@ const buildOrchestrator = () => {
   const insights = { collect: jest.fn().mockResolvedValue([]), loadInsightAds: jest.fn().mockResolvedValue([{ id: 'ad-1', meta_ad_id: 'm1', is_dynamic: false }]) };
   const media = { planForAds: jest.fn().mockResolvedValue(3) };
   const queues = { enqueueAnalytics: jest.fn() };
-  const orchestrator = new CollectionOrchestrator(
-    runs as unknown as CollectionRunsService, connections as unknown as MetaConnectionsService, collector as unknown as AdCollectorService,
-    insights as unknown as InsightsService, media as unknown as MediaService, queues as unknown as QueueService,
+  const tiktokAccount = { id: 'acc-1', meta_account_id: 'tiktok:700', connection_id: 'conn-tt', currency: 'USD' };
+  const tiktokConnections = {
+    contextForAccount: jest.fn().mockResolvedValue({ account: tiktokAccount, advertiserId: '700', context: { token: 'tt-token' } }), noteFailure: jest.fn(),
+  };
+  const tiktokCollector = { collect: jest.fn().mockResolvedValue({ ads: [{ id: 'ad-9', meta_ad_id: 'tiktok:9', is_new: true, is_dynamic: false, keywords: ['summer'] }], errors: [], truncated: false }) };
+  const tiktokInsights = { collect: jest.fn().mockResolvedValue([]) };
+  const metaSources = new MetaRunSourceFactory(connections as unknown as MetaConnectionsService, collector as unknown as AdCollectorService, insights as unknown as InsightsService);
+  const tiktokSources = new TikTokRunSourceFactory(
+    tiktokConnections as unknown as TikTokConnectionsService, tiktokCollector as unknown as TikTokCollectorService, tiktokInsights as unknown as TikTokInsightsService,
   );
-  return { runs, connections, collector, insights, media, queues, orchestrator };
+  const orchestrator = new CollectionOrchestrator(
+    runs as unknown as CollectionRunsService, metaSources, tiktokSources, insights as unknown as InsightsService, media as unknown as MediaService, queues as unknown as QueueService,
+  );
+  return { runs, connections, collector, insights, media, queues, tiktokConnections, tiktokCollector, tiktokInsights, orchestrator };
 };
 
 describe('CollectionOrchestrator', () => {
@@ -124,6 +139,57 @@ describe('CollectionOrchestrator', () => {
       });
       expect((await orchestrator.refreshInsights('run-1', 'u1', ['ad-1'], '2026-01-01', '2026-01-31')).status).toBe('partial');
       expect(runs.update.mock.calls.map((call) => call[1])).toContainEqual({ stage: 'insights: daily insights', progress: 50 });
+    });
+  });
+
+  describe('TikTok accounts', () => {
+    const useTikTok = (runs: { platformOfAccount: jest.Mock }) => runs.platformOfAccount.mockResolvedValue('tiktok');
+
+    it('runs the same pipeline through the TikTok services', async () => {
+      const { runs, collector, insights, media, tiktokConnections, tiktokCollector, tiktokInsights, orchestrator } = buildOrchestrator();
+      useTikTok(runs);
+      expect(await orchestrator.execute('run-1', 'u1')).toEqual({ status: 'succeeded', errors: [] });
+
+      expect(collector.collect).not.toHaveBeenCalled();
+      expect(insights.collect).not.toHaveBeenCalled();
+      expect(tiktokConnections.contextForAccount).toHaveBeenCalledWith('u1', 'acc-1');
+      expect(tiktokCollector.collect).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u1', advertiserId: '700', keywords: ['summer'], context: { token: 'tt-token' } }));
+      expect(tiktokInsights.collect).toHaveBeenCalledWith(expect.objectContaining({ advertiserId: '700', currency: 'USD', dateFrom: '2026-03-01', dateTo: '2026-03-10' }));
+      expect(media.planForAds).toHaveBeenCalledWith('u1', 'acc-1', ['ad-9']);
+      expect(runs.update.mock.calls[0][1]).toMatchObject({ status: 'running', stage: 'searching_tiktok' });
+    });
+
+    it('reports TikTok insight progress', async () => {
+      const { runs, tiktokInsights, orchestrator } = buildOrchestrator();
+      useTikTok(runs);
+      tiktokInsights.collect.mockImplementation(async ({ onProgress }: { onProgress: (done: number, total: number, label: string) => Promise<void> }) => {
+        await onProgress(1, 2, 'daily insights');
+        return [];
+      });
+      await orchestrator.execute('run-1', 'u1');
+      expect(runs.update.mock.calls.map((call) => call[1])).toContainEqual(expect.objectContaining({ stage: 'insights: daily insights', progress: 55 }));
+    });
+
+    it('flags the TikTok connection on an auth error but not on other errors', async () => {
+      const { runs, tiktokConnections, tiktokCollector, orchestrator } = buildOrchestrator();
+      useTikTok(runs);
+      const authError = new TikTokApiError('Access token is invalid', 200, 40_105);
+      tiktokCollector.collect.mockRejectedValueOnce(authError);
+      await expect(orchestrator.execute('run-1', 'u1')).rejects.toBe(authError);
+      expect(tiktokConnections.noteFailure).toHaveBeenCalledWith('conn-tt', authError);
+
+      tiktokConnections.noteFailure.mockClear();
+      tiktokCollector.collect.mockRejectedValueOnce(new Error('boom'));
+      await expect(orchestrator.execute('run-1', 'u1')).rejects.toThrow('boom');
+      expect(tiktokConnections.noteFailure).not.toHaveBeenCalled();
+    });
+
+    it('refreshes insights through TikTok too', async () => {
+      const { runs, insights, tiktokInsights, orchestrator } = buildOrchestrator();
+      useTikTok(runs);
+      expect(await orchestrator.refreshInsights('run-1', 'u1', ['ad-1'], '2026-01-01', '2026-01-31')).toEqual({ status: 'succeeded', errors: [] });
+      expect(insights.collect).not.toHaveBeenCalled();
+      expect(tiktokInsights.collect).toHaveBeenCalledWith(expect.objectContaining({ dateFrom: '2026-01-01', ads: [{ id: 'ad-1', meta_ad_id: 'm1', is_dynamic: false }] }));
     });
   });
 

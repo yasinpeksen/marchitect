@@ -19,7 +19,7 @@ export const NAVIGATION = [
   { href: '/saved', label: 'Saved Searches', icon: Star },
   { href: '/scheduler', label: 'Scheduler', icon: CalendarClock },
   { href: '/history', label: 'Collection History', icon: History },
-  { href: '/connections', label: 'Meta Connections', icon: PlugZap },
+  { href: '/connections', label: 'Connections', icon: PlugZap },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 

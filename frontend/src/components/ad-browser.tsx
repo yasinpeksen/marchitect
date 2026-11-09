@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { AdFilters, buildAdsQuery, collectionRangeFor, EMPTY_FILTERS, parseKeywordParameter } from '@/lib/ad-filters';
 import { useApi, useData } from '@/lib/api';
+import { pickCollectionTargets, summarizeStartedCollections } from '@/lib/collection-targets';
 import type { AdAccount, AdsPage, Campaign, SearchHistoryEntry, StartCollectionResponse } from '@/lib/types';
 import { AdCard } from './ad-card';
 import { FiltersPanel, SearchPanel, SORT_OPTIONS } from './ad-browser-parts';
@@ -27,7 +28,7 @@ function ResultsGrid({ data, loading, hasKeywords, mode, accounts, page, onPageC
     return (
       <Empty
         title={hasKeywords ? 'No collected ads match these keywords' : 'No ads collected yet'}
-        hint={mode === 'search' ? 'Use “Collect from Meta” to fetch matching ads from your ad account.' : 'Run a search on the Ad Search page to collect ads.'}
+        hint={mode === 'search' ? 'Use “Collect ads” to fetch matching ads from your connected Meta and TikTok ad accounts.' : 'Run a search on the Ad Search page to collect ads.'}
         action={<SearchIcon className="mx-auto h-6 w-6 text-slate-300" />}
       />
     );
@@ -42,7 +43,7 @@ function ResultsGrid({ data, loading, hasKeywords, mode, accounts, page, onPageC
   );
 }
 
-/** Shared by Ad Search (keyword-first + Meta collection) and Ad Library (browse + filter). */
+/** Shared by Ad Search (keyword-first + one-click Meta and TikTok collection) and Ad Library (browse + filter). */
 export function AdBrowser({ mode }: { mode: 'search' | 'library' }) {
   const api = useApi();
   const searchParameters = useSearchParams();
@@ -55,8 +56,8 @@ export function AdBrowser({ mode }: { mode: 'search' | 'library' }) {
   const [sort, setSort] = useState('recent');
   const [direction, setDirection] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
-  const [runId, setRunId] = useState<string>();
-  const [runActive, setRunActive] = useState(false);
+  const [runIds, setRunIds] = useState<string[]>([]);
+  const [activeRuns, setActiveRuns] = useState<Record<string, boolean>>({});
   const [message, setMessage] = useState<string>();
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
@@ -64,7 +65,8 @@ export function AdBrowser({ mode }: { mode: 'search' | 'library' }) {
   const { data: accounts } = useData<AdAccount[]>('/ad-accounts');
   const { data: campaigns } = useData<Campaign[]>(`/campaigns${accountId ? `?ad_account_id=${accountId}` : ''}`);
   const { data: history } = useData<SearchHistoryEntry[]>(mode === 'search' ? '/search/history' : null);
-  const collectionAccountId = accountId || accounts?.find((account) => account.selected)?.id || '';
+  const collectionTargets = pickCollectionTargets(accounts, accountId);
+  const runActive = Object.values(activeRuns).some(Boolean);
 
   const query = useMemo(() => buildAdsQuery({ keywords: tags, match, filters, accountId, sort, direction, page }), [tags, match, filters, accountId, sort, direction, page]);
   const { data, error: loadError, isLoading, mutate } = useData<AdsPage>(query, {
@@ -77,18 +79,24 @@ export function AdBrowser({ mode }: { mode: 'search' | 'library' }) {
     setPage(1);
   };
 
-  async function collectFromMeta() {
+  async function collectAds() {
     setError(undefined);
     setMessage(undefined);
     setBusy(true);
     try {
       if (tags.length === 0) throw new Error('Add at least one keyword first.');
-      if (!collectionAccountId) throw new Error('Connect a Meta ad account first (Meta Connections).');
+      if (collectionTargets.length === 0) throw new Error('Connect and enable an ad account first (Connections).');
       const { dateFrom, dateTo } = collectionRangeFor(lookbackDays);
-      const started = await api.post<StartCollectionResponse>('/search/collect', { keywords: tags, ad_account_id: collectionAccountId, date_from: dateFrom, date_to: dateTo });
-      setRunId(started.run.id);
-      setRunActive(true);
-      setMessage(started.reused ? 'An identical collection is already running; showing its progress.' : `${started.existing_matches} matching ads already stored. Collecting fresh data from Meta…`);
+      const attempts = await Promise.allSettled(
+        collectionTargets.map((account) => api.post<StartCollectionResponse>('/search/collect', { keywords: tags, ad_account_id: account.id, date_from: dateFrom, date_to: dateTo })),
+      );
+      const started = attempts.flatMap((attempt) => (attempt.status === 'fulfilled' ? [attempt.value] : []));
+      const failures = attempts.flatMap((attempt) => (attempt.status === 'rejected' ? [attempt.reason as unknown] : []));
+      if (started.length === 0) throw failures[0];
+      setRunIds(started.map((entry) => entry.run.id));
+      setActiveRuns(Object.fromEntries(started.map((entry) => [entry.run.id, true])));
+      setMessage(summarizeStartedCollections(started, collectionTargets));
+      if (failures.length > 0) setError(failures[0]); // some accounts failed to start; the others are running
     } catch (caught) {
       setError(caught);
     } finally {
@@ -101,7 +109,7 @@ export function AdBrowser({ mode }: { mode: 'search' | 'library' }) {
     if (!name) return;
     setError(undefined);
     try {
-      await api.post('/saved-searches', { name, tags, match_mode: match, ad_account_id: collectionAccountId || undefined, filters: {} });
+      await api.post('/saved-searches', { name, tags, match_mode: match, ad_account_id: accountId || collectionTargets[0]?.id || undefined, filters: {} });
       setMessage('Search saved.');
     } catch (caught) {
       setError(caught);
@@ -114,7 +122,7 @@ export function AdBrowser({ mode }: { mode: 'search' | 'library' }) {
         <SearchPanel
           tags={tags} onTagsChange={changeTags} match={match} onMatchChange={setMatch} accounts={accounts} accountId={accountId}
           onAccountChange={setAccountId} lookbackDays={lookbackDays} onLookbackChange={setLookbackDays} history={history}
-          busy={busy} onSave={saveSearch} onCollect={collectFromMeta}
+          busy={busy} onSave={saveSearch} onCollect={collectAds}
         />
       ) : (
         <TagInput tags={tags} onChange={changeTags} placeholder="Filter by keywords…" />
@@ -122,7 +130,9 @@ export function AdBrowser({ mode }: { mode: 'search' | 'library' }) {
 
       {message && <Notice tone="green">{message}</Notice>}
       <ErrorBox error={error ?? loadError} />
-      {runId && <RunProgress runId={runId} onUpdate={(run) => { setRunActive(isRunActive(run.status)); void mutate(); }} />}
+      {runIds.map((runId) => (
+        <RunProgress key={runId} runId={runId} onUpdate={(run) => { setActiveRuns((current) => ({ ...current, [runId]: isRunActive(run.status) })); void mutate(); }} />
+      ))}
 
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" onClick={() => setShowFilters(!showFilters)}><Filter className="h-4 w-4" /> Filters</Button>

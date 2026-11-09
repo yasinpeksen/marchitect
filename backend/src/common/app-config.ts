@@ -48,6 +48,8 @@ export class AppConfig {
   readonly metaMaxRetries = readInteger(process.env.META_MAX_RETRIES, 5);
   readonly metaRetryBaseMs = readInteger(process.env.META_RETRY_BASE_MS, 1000);
   readonly adLibraryEnabled = process.env.META_AD_LIBRARY_ENABLED === 'true';
+  /** TikTok Marketing API base (override to point at the mock server in test/dev). Retries reuse META_MAX_RETRIES / META_RETRY_BASE_MS. */
+  readonly tiktokApiBaseUrl = (process.env.TIKTOK_API_BASE_URL ?? 'https://business-api.tiktok.com/open_api/v1.3').replace(/\/$/, '');
 
   readonly maxAdsPerRun = readInteger(process.env.MAX_ADS_PER_RUN, 2000);
   readonly defaultLookbackDays = readInteger(process.env.COLLECTION_DEFAULT_LOOKBACK_DAYS, 30);

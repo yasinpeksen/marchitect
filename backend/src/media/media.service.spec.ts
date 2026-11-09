@@ -9,8 +9,8 @@ import { extensionForMime, isAllowedMediaUrl, MediaService, needsDownload, planM
 describe('isAllowedMediaUrl', () => {
   it.each([
     'https://scontent.xx.fbcdn.net/v/t1/image.jpg', 'https://video.xx.fbcdn.net/v/video.mp4', 'https://cdn.fbsbx.com/x', 'https://www.facebook.com/x',
-    'https://facebook.com/x', 'https://scontent.cdninstagram.com/x',
-  ])('allows Meta CDN host %s', (url) => expect(isAllowedMediaUrl(url)).toBe(true));
+    'https://facebook.com/x', 'https://scontent.cdninstagram.com/x', 'https://p16-sign.tiktokcdn.com/x.jpg', 'https://p19.tiktokcdn-us.com/x', 'https://p16.ibyteimg.com/x',
+  ])('allows Meta / TikTok CDN host %s', (url) => expect(isAllowedMediaUrl(url)).toBe(true));
 
   it.each([
     'http://scontent.xx.fbcdn.net/image.jpg', 'https://evil.example.com/x', 'https://fbcdn.net.evil.com/x', 'https://169.254.169.254/latest/meta-data',
@@ -137,6 +137,12 @@ describe('MediaService', () => {
       fake.respond('ad_creatives', { data: { image_url: 'https://i', thumbnail_url: 'https://t' } });
       expect(await service.resolveSource('u1', 'acc-1', { dedupe_key: 'thumb:cr1', source_ref: 'cr1' })).toBe('https://t');
       expect(await service.resolveSource('u1', 'acc-1', { dedupe_key: 'imagecreative:cr1', source_ref: 'cr1' })).toBe('https://i');
+    });
+    it('does not need a Meta connection for creative images (TikTok accounts have none)', async () => {
+      const { fake, service, connections } = buildService();
+      fake.respond('ad_creatives', { data: { image_url: 'https://p16.tiktokcdn.com/i.jpg', thumbnail_url: 'https://p16.tiktokcdn.com/t.jpg' } });
+      expect(await service.resolveSource('u1', 'tiktok-acc', { dedupe_key: 'thumb:cr1', source_ref: 'cr1' })).toBe('https://p16.tiktokcdn.com/t.jpg');
+      expect(connections.contextForAccount).not.toHaveBeenCalled();
     });
     it('fails when the creative has no media URL', async () => {
       const { fake, service } = buildService();

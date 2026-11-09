@@ -60,6 +60,13 @@ export async function connectMeta(api: ApiClient, token: string): Promise<AdAcco
   return (await api.get<AdAccountSummary[]>('/ad-accounts')).body;
 }
 
+/** Connects a TikTok token for the user (authorised for `advertiserIds`) and returns the ad accounts afterwards. */
+export async function connectTikTok(api: ApiClient, token: string, advertiserIds: string[]): Promise<AdAccountSummary[]> {
+  const connected = await api.post('/tiktok/connections', { token, advertiser_ids: advertiserIds });
+  if (connected.status !== 201) throw new Error(`Connecting TikTok failed with HTTP ${connected.status}: ${JSON.stringify(connected.body)}`);
+  return (await api.get<AdAccountSummary[]>('/ad-accounts')).body;
+}
+
 /** Waits until a collection run reaches a terminal status. */
 export function waitForRun(api: ApiClient, runId: string, timeoutMs = 120_000): Promise<RunSummary> {
   return waitFor(

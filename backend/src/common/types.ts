@@ -156,7 +156,89 @@ export interface MetaImage {
   height?: number;
 }
 
+// ------------------------------------------------------------ TikTok Marketing API
+export interface TikTokPage<Item> {
+  list?: Item[];
+  page_info?: { page: number; page_size?: number; total_number?: number; total_page: number };
+}
+
+export interface TikTokAdvertiser {
+  advertiser_id: string;
+  name?: string;
+  currency?: string;
+  timezone?: string;
+  display_timezone?: string;
+  status?: string;
+  company?: string;
+}
+
+export interface TikTokCampaign {
+  campaign_id: string;
+  campaign_name?: string;
+  objective_type?: string;
+  budget_mode?: string;
+  budget?: number;
+  operation_status?: string;
+  secondary_status?: string;
+  create_time?: string;
+  modify_time?: string;
+}
+
+export interface TikTokAdGroup {
+  adgroup_id: string;
+  adgroup_name?: string;
+  campaign_id?: string;
+  optimization_goal?: string;
+  billing_event?: string;
+  budget_mode?: string;
+  budget?: number;
+  schedule_start_time?: string;
+  schedule_end_time?: string;
+  placements?: string[];
+  operation_status?: string;
+  secondary_status?: string;
+}
+
+export interface TikTokAd {
+  ad_id: string;
+  ad_name?: string;
+  campaign_id?: string;
+  adgroup_id?: string;
+  ad_text?: string;
+  call_to_action?: string;
+  landing_page_url?: string;
+  display_name?: string;
+  video_id?: string;
+  image_ids?: string[];
+  operation_status?: string;
+  secondary_status?: string;
+  create_time?: string;
+  modify_time?: string;
+}
+
+export interface TikTokVideoInfo {
+  video_id: string;
+  video_cover_url?: string;
+  preview_url?: string;
+  duration?: number;
+}
+
+export interface TikTokImageInfo {
+  image_id: string;
+  image_url?: string;
+  width?: number;
+  height?: number;
+}
+
+/** One row of /report/integrated/get: dimension values plus metrics (numbers arrive as strings, "-" when unavailable). */
+export interface TikTokReportRow {
+  dimensions: { ad_id: string; stat_time_day?: string };
+  metrics: Record<string, string | number | null | undefined>;
+}
+
 // ------------------------------------------------------------ database rows
+export type AdPlatform = 'meta' | 'tiktok';
+
 export interface MetaConnectionRow {
   id: string;
   user_id: string;
@@ -174,6 +256,7 @@ export interface AdAccountRow {
   user_id: string;
   connection_id: string;
   meta_account_id: string;
+  platform?: AdPlatform;
   name: string | null;
   currency: string | null;
   selected: boolean;

@@ -7,15 +7,17 @@ import { MetaIntegrationModule } from '../meta/meta.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SchedulerModule } from '../scheduler/scheduler.module';
 import { SearchModule } from '../search/search.module';
+import { TikTokIntegrationModule } from '../tiktok/tiktok.module';
 import { CollectionOrchestrator } from './collection.orchestrator';
+import { MetaRunSourceFactory, TikTokRunSourceFactory } from './run-sources';
 import { AnalyticsProcessor, CollectionProcessor, MediaProcessor, SchedulerProcessor } from './processors';
 
 /** Worker-only: registers the BullMQ processors. The API process does NOT import this module. */
 @Module({
   imports: [
     MetaIntegrationModule, SearchModule, AdvertisementsModule, InsightsModule, MediaStorageModule,
-    AnalyticsModule, SchedulerModule, NotificationsModule,
+    AnalyticsModule, SchedulerModule, NotificationsModule, TikTokIntegrationModule,
   ],
-  providers: [CollectionOrchestrator, CollectionProcessor, MediaProcessor, AnalyticsProcessor, SchedulerProcessor],
+  providers: [MetaRunSourceFactory, TikTokRunSourceFactory, CollectionOrchestrator, CollectionProcessor, MediaProcessor, AnalyticsProcessor, SchedulerProcessor],
 })
 export class BackgroundJobsModule {}

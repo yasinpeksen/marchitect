@@ -21,6 +21,19 @@ describe('CollectionRunsService', () => {
     ]);
   });
 
+  describe('platformOfAccount', () => {
+    it('reads the platform of the account', async () => {
+      const { fake, service } = buildService();
+      fake.respond('ad_accounts', { data: { platform: 'tiktok' } });
+      expect(await service.platformOfAccount('u1', 'acc')).toBe('tiktok');
+    });
+    it('defaults to meta when the account is unknown, so the Meta path reports it', async () => {
+      const { fake, service } = buildService();
+      fake.respond('ad_accounts', { data: null });
+      expect(await service.platformOfAccount('u1', 'acc')).toBe('meta');
+    });
+  });
+
   describe('findActive', () => {
     it('returns an in-flight run with exactly the same keywords', async () => {
       const { fake, service } = buildService();

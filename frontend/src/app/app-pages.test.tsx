@@ -260,6 +260,7 @@ describe('Connections', () => {
   const arrange = (overrides: { oauth?: boolean } = {}) => {
     dataState.responses['/meta/status'] = { oauthConfigured: overrides.oauth ?? false, adLibraryEnabled: false, graphVersion: 'v24.0' };
     dataState.responses['/meta/connections'] = [makeConnection({ status: 'expired', last_error: 'Session has expired' })];
+    dataState.responses['/tiktok/connections'] = [];
     dataState.responses['/ad-accounts'] = [makeAccount({ business_name: 'Biz' })];
   };
 
@@ -289,7 +290,7 @@ describe('Connections', () => {
     const button = screen.getByRole('button', { name: 'Verify & connect' });
     expect(button).toBeDisabled();
     fireEvent.change(screen.getByLabelText(/Access token/), { target: { value: 'EAA'.padEnd(30, 'x') } });
-    fireEvent.change(screen.getByLabelText(/Label/), { target: { value: 'Work' } });
+    fireEvent.change(screen.getAllByLabelText(/Label/)[0], { target: { value: 'Work' } });
     fireEvent.click(button);
     expect(await screen.findByText('Token verified and stored securely.')).toBeInTheDocument();
     expect(apiMock.post).toHaveBeenCalledWith('/meta/connections', { token: 'EAA'.padEnd(30, 'x'), name: 'Work' });
@@ -319,6 +320,40 @@ describe('Connections', () => {
     fireEvent.click(screen.getByRole('checkbox'));
     await waitFor(() => expect(apiMock.patch).toHaveBeenCalledWith('/ad-accounts/acc-1', { selected: false }));
   });
+  it('connects TikTok with a token and advertiser ids, then clears the form', async () => {
+    arrange();
+    apiMock.post.mockResolvedValue({});
+    render(<Connections />);
+    const button = screen.getByRole('button', { name: 'Verify & connect TikTok' });
+    expect(button).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Marketing API access token'), { target: { value: 'tt'.padEnd(30, 'x') } });
+    expect(button).toBeDisabled(); // still needs an advertiser id
+    fireEvent.change(screen.getByLabelText(/Advertiser IDs/), { target: { value: '7001234567, nope, 7001234568' } });
+    fireEvent.change(screen.getAllByLabelText(/Label/)[1], { target: { value: 'TikTok shop' } });
+    fireEvent.click(button);
+    expect(await screen.findByText('TikTok token verified and stored securely.')).toBeInTheDocument();
+    expect(apiMock.post).toHaveBeenCalledWith('/tiktok/connections', { token: 'tt'.padEnd(30, 'x'), advertiser_ids: ['7001234567', '7001234568'], name: 'TikTok shop' });
+    expect(screen.getByLabelText('Marketing API access token')).toHaveValue('');
+    expect(screen.getByLabelText(/Advertiser IDs/)).toHaveValue('');
+  });
+  it('lists TikTok connections and accounts with their platform and uses the TikTok API to sync and disconnect', async () => {
+    arrange();
+    dataState.responses['/meta/connections'] = [];
+    dataState.responses['/tiktok/connections'] = [makeConnection({ id: 'tt-conn', name: 'Shoe Shop TikTok' })];
+    dataState.responses['/ad-accounts'] = [makeAccount({ id: 'tt-acc', platform: 'tiktok', meta_account_id: 'tiktok:7001', name: null })];
+    apiMock.post.mockResolvedValue({ synced: 1 });
+    apiMock.remove.mockResolvedValue(undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<Connections />);
+    expect(screen.getByText('Shoe Shop TikTok')).toBeInTheDocument();
+    expect(screen.getAllByText('TikTok').length).toBeGreaterThanOrEqual(2); // connection + account badges
+    expect(screen.queryByText(/Permissions:/)).toBeNull();
+    expect(screen.getByText(/^7001 · USD/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Sync accounts' }));
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith('/tiktok/connections/tt-conn/sync'));
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
+    await waitFor(() => expect(apiMock.remove).toHaveBeenCalledWith('/tiktok/connections/tt-conn'));
+  });
   it('shows OAuth round-trip results from the URL', () => {
     arrange();
     navigationMock.searchParameters = new URLSearchParams('connected=1');
@@ -339,9 +374,10 @@ describe('Connections', () => {
   it('shows empty states and the enabled Ad Library note', () => {
     dataState.responses['/meta/status'] = { oauthConfigured: false, adLibraryEnabled: true, graphVersion: 'v24.0' };
     dataState.responses['/meta/connections'] = [];
+    dataState.responses['/tiktok/connections'] = [];
     dataState.responses['/ad-accounts'] = [];
     render(<Connections />);
-    expect(screen.getByText('No Meta connections')).toBeInTheDocument();
+    expect(screen.getByText('No connections')).toBeInTheDocument();
     expect(screen.getByText('No ad accounts')).toBeInTheDocument();
     expect(screen.getByText(/Ad Library access is enabled/)).toBeInTheDocument();
   });

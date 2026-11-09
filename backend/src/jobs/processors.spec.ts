@@ -10,11 +10,12 @@ import { CollectionRunsService } from '../search/collection-runs.service';
 import { buildTestConfig } from '../testing/fake-supabase';
 import { CollectionOrchestrator } from './collection.orchestrator';
 import { AnalyticsProcessor, CollectionProcessor, isFinalAttempt, MediaProcessor, SchedulerProcessor, toFatalError } from './processors';
+import { TikTokApiError } from '../tiktok/tiktok-api.client';
 import { QueueService } from './queues';
 
 describe('toFatalError', () => {
   it.each([
-    new MetaApiError('expired', 401, 190), new MetaApiError('denied', 403, 200), new NotFoundException('gone'), new BadRequestException('bad'),
+    new MetaApiError('expired', 401, 190), new MetaApiError('denied', 403, 200), new TikTokApiError('expired', 200, 40_105), new TikTokApiError('forbidden', 403), new NotFoundException('gone'), new BadRequestException('bad'),
   ])('makes %p unrecoverable', (error) => expect(toFatalError(error)).toBeInstanceOf(UnrecoverableError));
   it('keeps retryable errors as they are', () => {
     const error = new Error('timeout');
