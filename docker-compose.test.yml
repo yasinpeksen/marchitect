@@ -1,0 +1,73 @@
+# Integration-test stack: the real backend + worker + Redis + Supabase, with Meta replaced by a mock Graph API.
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build redis backend worker mock-meta
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml run --rm test-integration
+# Supabase must be running (local CLI stack or a dedicated cloud test project) and .env filled in.
+# Never point this overlay at a production Supabase project: the tests create and delete users.
+
+x-mock-meta-environment: &mock-meta-environment
+  META_GRAPH_BASE_URL: http://mock-meta:4010
+  META_DIALOG_BASE_URL: http://mock-meta:4010
+  META_APP_ID: mock-app-id
+  META_APP_SECRET: mock-app-secret
+  META_OAUTH_REDIRECT_URI: http://backend:3001/api/v1/meta/oauth/callback
+  META_AD_LIBRARY_ENABLED: "true"
+  MEDIA_ALLOWED_HOSTS: mock-meta     # lets media download from the mock over plain http
+  META_RETRY_BASE_MS: "1"            # fast retries in tests
+  SCHEDULER_TICK_MS: "2000"          # scheduler ticks every 2s instead of 60s
+  RATE_LIMIT_MAX: "100000"           # tests poll heavily from one IP
+
+services:
+  mock-meta:
+    build:
+      context: ./backend
+      target: dev
+    image: markhitect/backend-dev:local
+    command: ["npx", "ts-node", "--transpile-only", "src/testing/mock-meta/main.ts"]
+    environment:
+      MOCK_META_PORT: "4010"
+      MOCK_META_PUBLIC_URL: http://mock-meta:4010
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4010/__admin/requests >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks: [internal]
+    restart: unless-stopped
+
+  backend:
+    environment: *mock-meta-environment
+    depends_on:
+      mock-meta: { condition: service_healthy }
+
+  worker:
+    environment:
+      <<: *mock-meta-environment
+      WORKER_HEALTH_PORT: "3002"
+    depends_on:
+      mock-meta: { condition: service_healthy }
+
+  test-integration:
+    build:
+      context: ./backend
+      target: dev
+    image: markhitect/backend-dev:local
+    profiles: [tools]
+    command: ["npm", "run", "test:integration"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      API_BASE_URL: http://backend:3001
+      MOCK_META_URL: http://mock-meta:4010
+      WORKER_HEALTH_URL: http://worker:3002/health
+      SUPABASE_URL: ${SUPABASE_INTERNAL_URL:-${SUPABASE_URL}}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      backend: { condition: service_healthy }
+      worker: { condition: service_healthy }
+      mock-meta: { condition: service_healthy }
+    networks: [internal]
+    restart: "no"

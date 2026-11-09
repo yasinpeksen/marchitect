@@ -1,0 +1,153 @@
+name: markhitect
+
+# `docker compose up --build` runs: redis, backend (API), worker (queues + scheduler), frontend.
+# Supabase is external: a cloud project or the local CLI stack (see README -> Docker setup).
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+x-backend: &backend
+  build:
+    context: ./backend
+    target: runtime
+    additional_contexts:
+      migrations: ./supabase/migrations
+  image: markhitect/backend:local
+  env_file:
+    - path: .env
+      required: false
+  environment: &backend-env
+    NODE_ENV: production
+    # Containers reach Supabase through SUPABASE_INTERNAL_URL (defaults to the browser URL).
+    SUPABASE_URL: ${SUPABASE_INTERNAL_URL:-${SUPABASE_URL}}
+    REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379
+    FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+    CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+  extra_hosts:
+    - "host.docker.internal:host-gateway"   # reach a local Supabase CLI stack on the host
+  networks: [internal]
+  restart: unless-stopped
+  logging: *logging
+  depends_on:
+    redis: { condition: service_healthy }
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [internal]
+    restart: unless-stopped
+    logging: *logging
+
+  backend:
+    <<: *backend
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    <<: *backend
+    command: ["node", "dist/worker.js"]
+    environment:
+      <<: *backend-env
+      WORKER_HEALTH_PORT: "3002"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    stop_grace_period: 60s   # let in-flight jobs finish on shutdown
+
+  frontend:
+    build:
+      context: ./frontend
+      target: runtime
+    image: markhitect/frontend:local
+    # Only public values: no service-role key, Meta token key or Redis credentials.
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      API_URL: ${API_URL:-http://localhost:3001}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/login >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [internal]
+    restart: unless-stopped
+    logging: *logging
+
+  # One-shot tools (not started by `up`): docker compose run --rm migrate | lint-backend | lint-frontend | test-backend | test-frontend | test-e2e
+  # (integration tests: see docker-compose.test.yml)
+  migrate:
+    <<: *backend
+    profiles: [tools]
+    command: ["node", "dist/scripts/migrate.js"]
+    restart: "no"
+    depends_on: {}
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL (Supabase Postgres connection string) in .env}
+
+  test-backend:
+    build: { context: ./backend, target: dev }
+    profiles: [tools]
+    command: ["npm", "test"]
+    networks: [internal]
+    restart: "no"
+
+  test-frontend:
+    build: { context: ./frontend, target: dev }
+    profiles: [tools]
+    command: ["npm", "test"]
+    networks: [internal]
+    restart: "no"
+
+  lint-backend:
+    build: { context: ./backend, target: dev }
+    profiles: [tools]
+    command: ["npm", "run", "lint"]
+    restart: "no"
+
+  lint-frontend:
+    build: { context: ./frontend, target: dev }
+    profiles: [tools]
+    command: ["npm", "run", "lint"]
+    restart: "no"
+
+  test-e2e:
+    build: { context: ./backend, target: dev }
+    profiles: [tools]
+    command: ["npm", "run", "test:e2e"]
+    environment:
+      API_BASE_URL: http://backend:3001
+    depends_on:
+      backend: { condition: service_healthy }
+    networks: [internal]
+    restart: "no"
+
+networks:
+  internal: {}
+
+volumes:
+  redis-data: {}
