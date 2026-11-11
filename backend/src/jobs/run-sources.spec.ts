@@ -1,4 +1,6 @@
 import { AdCollectorService } from '../advertisements/ad-collector.service';
+import { AdLibraryCollectorService } from '../advertisements/ad-library-collector.service';
+import { AppConfig } from '../common/app-config';
 import { InsightsService } from '../insights/insights.service';
 import { MetaApiError } from '../meta/meta-api.client';
 import { MetaConnectionsService } from '../meta/meta-connections.service';
@@ -13,12 +15,18 @@ const progress = jest.fn();
 
 describe('MetaRunSourceFactory', () => {
   const account = { id: 'acc-1', meta_account_id: 'act_1', connection_id: 'conn-1' };
-  const build = () => {
+  const ownAd = { id: 'ad-1', meta_ad_id: 'm1', creative_id: null, is_new: true, is_dynamic: false, keywords: ['a'] };
+  const libraryAd = { id: 'ad-2', meta_ad_id: 'adlib:9', creative_id: null, is_new: true, is_dynamic: false, keywords: ['a'] };
+  const build = (adLibraryEnabled = false) => {
     const connections = { contextForAccount: jest.fn().mockResolvedValue({ account, context: { token: 'EAAx' } }), noteFailure: jest.fn().mockResolvedValue(undefined) };
-    const collector = { collect: jest.fn().mockResolvedValue({ ads: [], errors: [], truncated: false }) };
+    const collector = { collect: jest.fn().mockResolvedValue({ ads: [ownAd], errors: [], truncated: false }) };
     const insights = { collect: jest.fn().mockResolvedValue(['range insights: failed']) };
-    const factory = new MetaRunSourceFactory(connections as unknown as MetaConnectionsService, collector as unknown as AdCollectorService, insights as unknown as InsightsService);
-    return { connections, collector, insights, factory };
+    const libraryCollector = { collect: jest.fn().mockResolvedValue({ ads: [libraryAd], errors: ['library note'], truncated: false }) };
+    const factory = new MetaRunSourceFactory(
+      connections as unknown as MetaConnectionsService, collector as unknown as AdCollectorService, insights as unknown as InsightsService,
+      libraryCollector as unknown as AdLibraryCollectorService, { adLibraryEnabled } as unknown as AppConfig,
+    );
+    return { connections, collector, insights, libraryCollector, factory };
   };
 
   it('binds collection, insights and failure handling to the Meta account', async () => {
@@ -33,6 +41,30 @@ describe('MetaRunSourceFactory', () => {
     expect(insights.collect).toHaveBeenCalledWith({ userId: 'u1', metaAccountId: 'act_1', context: { token: 'EAAx' }, ads, dateFrom: '2026-01-01', dateTo: '2026-01-31', onProgress: progress });
     await source.noteFailure(new Error('x'));
     expect(connections.noteFailure).toHaveBeenCalledWith('conn-1', expect.any(Error));
+  });
+
+  it('searches only the ad account when the Ad Library is disabled', async () => {
+    const { libraryCollector, factory } = build(false);
+    const source = await factory.open('u1', 'acc-1');
+    expect((await source.collect(['a'])).ads).toEqual([ownAd]);
+    expect(libraryCollector.collect).not.toHaveBeenCalled();
+  });
+
+  it('adds Ad Library matches (and their notes) to the account results when enabled', async () => {
+    const { libraryCollector, factory } = build(true);
+    const source = await factory.open('u1', 'acc-1');
+    expect(await source.collect(['a'])).toEqual({ ads: [ownAd, libraryAd], errors: ['library note'], truncated: false });
+    expect(libraryCollector.collect).toHaveBeenCalledWith({ userId: 'u1', account, context: { token: 'EAAx' }, keywords: ['a'] });
+  });
+
+  it('collects insights only for the account ads, never for Ad Library ads', async () => {
+    const { insights, factory } = build(true);
+    const source = await factory.open('u1', 'acc-1');
+    await source.collectInsights([ownAd, libraryAd], '2026-01-01', '2026-01-31', progress);
+    expect(insights.collect).toHaveBeenCalledWith(expect.objectContaining({ ads: [ownAd] }));
+    insights.collect.mockClear();
+    expect(await source.collectInsights([libraryAd], '2026-01-01', '2026-01-31', progress)).toEqual([]);
+    expect(insights.collect).not.toHaveBeenCalled();
   });
 
   it('treats only Meta auth errors as token failures', async () => {

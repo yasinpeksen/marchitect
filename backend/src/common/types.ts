@@ -156,6 +156,21 @@ export interface MetaImage {
   height?: number;
 }
 
+/** One entry of the public Meta Ad Library (`ads_archive`). Carries no performance data. */
+export interface MetaLibraryAd {
+  id: string;
+  page_id?: string;
+  page_name?: string;
+  ad_creation_time?: string;
+  ad_delivery_start_time?: string;
+  ad_delivery_stop_time?: string;
+  ad_creative_bodies?: string[];
+  ad_creative_link_titles?: string[];
+  ad_snapshot_url?: string;
+  publisher_platforms?: string[];
+  languages?: string[];
+}
+
 // ------------------------------------------------------------ TikTok Marketing API
 export interface TikTokPage<Item> {
   list?: Item[];

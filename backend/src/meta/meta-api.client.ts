@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createHmac } from 'crypto';
 import { AppConfig } from '../common/app-config';
 import {
-  MetaAd, MetaAdAccount, MetaAdSet, MetaCampaign, MetaCreative, MetaImage, MetaInsightRow, MetaVideo,
+  MetaAd, MetaAdAccount, MetaAdSet, MetaCampaign, MetaCreative, MetaImage, MetaInsightRow, MetaLibraryAd, MetaVideo,
 } from '../common/types';
 
 export interface MetaContext {
@@ -332,5 +332,10 @@ export class MetaApiClient {
   // --------------------------------------------------------------- ad library
   adLibrary(context: MetaContext, parameters: RequestParameters) {
     return this.get(context, 'ads_archive', parameters);
+  }
+
+  /** All pages of an Ad Library search, up to `maxItems`. */
+  listAdLibrary(context: MetaContext, parameters: RequestParameters, maxItems?: number) {
+    return this.getAll<MetaLibraryAd>(context, 'ads_archive', parameters, maxItems);
   }
 }

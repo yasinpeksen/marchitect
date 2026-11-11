@@ -215,7 +215,10 @@ export function createMockMetaServer(options: MockMetaOptions) {
       /^ads_archive$/,
       (request) => {
         const term = (request.query.search_terms ?? '').toLowerCase();
-        const library = [{ id: 'lib1', page_id: 'p1', page_name: 'Competitor Shoes', ad_creative_bodies: ['Buy running shoes now'], publisher_platforms: ['facebook'] }];
+        const library = [{
+          id: 'lib1', page_id: 'p1', page_name: 'Competitor Shoes', ad_creation_time: '2026-02-10', ad_creative_bodies: ['Buy running shoes now'], ad_creative_link_titles: ['Run faster'],
+          ad_snapshot_url: 'https://www.facebook.com/ads/archive/render_ad/?id=lib1', publisher_platforms: ['FACEBOOK', 'INSTAGRAM'],
+        }];
         return paginate(request, library.filter((entry) => JSON.stringify(entry).toLowerCase().includes(term)));
       },
     ],

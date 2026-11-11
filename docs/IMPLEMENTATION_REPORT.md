@@ -8,9 +8,9 @@ Status date: 2026-11-07. **Read “Verification status” first: the Meta integr
 |---|---|
 | ESLint, zero warnings (backend + frontend; naming, no `any`, complexity, floating promises, react-hooks, Next rules) | Pass |
 | TypeScript compile (backend, frontend) and `next build` | Pass |
-| Backend unit tests (611, incl. mock Meta server) with coverage thresholds (97% statements / 95% functions) | Pass |
+| Backend unit tests (646, incl. mock Meta server) with coverage thresholds (97% statements / 95% functions) | Pass |
 | Frontend unit tests (299: lib, components, every page) with coverage thresholds (95% statements / 90% functions) | Pass |
-| Integration tests against the real stack (local Supabase, Redis, backend, worker) with a **mock Meta Graph API** (99 tests: TikTok connect/collect/analytics/media/scheduling/failures/isolation, connections/OAuth/Ad Library, full collection pipeline incl. media in Storage and async insights, resilience, scheduler, security/RLS/Redis/worker) | Pass |
+| Integration tests against the real stack (local Supabase, Redis, backend, worker) with a **mock Meta Graph API** (104 tests: Ad Library, TikTok connect/collect/analytics/media/scheduling/failures/isolation, connections/OAuth/Ad Library, full collection pipeline incl. media in Storage and async insights, resilience, scheduler, security/RLS/Redis/worker) | Pass |
 | `docker compose run --rm test-e2e` black-box API checks | Pass |
 | Browser smoke of the UI (earlier run, before the naming/lint refactor) | Pass; re-run recommended |
 | Anything calling the **real** Meta Graph API | **Not verified**: no Meta credentials and no Meta API JSON specification were supplied. Behaviour is verified against the mock, which follows Meta's public documentation |

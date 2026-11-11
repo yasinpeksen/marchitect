@@ -1,4 +1,6 @@
 import { AdCollectorService } from '../advertisements/ad-collector.service';
+import { AdLibraryCollectorService } from '../advertisements/ad-library-collector.service';
+import { AppConfig } from '../common/app-config';
 import { InsightsService } from '../insights/insights.service';
 import { MediaService } from '../media/media.service';
 import { MetaApiError } from '../meta/meta-api.client';
@@ -47,7 +49,10 @@ const buildOrchestrator = () => {
   };
   const tiktokCollector = { collect: jest.fn().mockResolvedValue({ ads: [{ id: 'ad-9', meta_ad_id: 'tiktok:9', is_new: true, is_dynamic: false, keywords: ['summer'] }], errors: [], truncated: false }) };
   const tiktokInsights = { collect: jest.fn().mockResolvedValue([]) };
-  const metaSources = new MetaRunSourceFactory(connections as unknown as MetaConnectionsService, collector as unknown as AdCollectorService, insights as unknown as InsightsService);
+  const metaSources = new MetaRunSourceFactory(
+    connections as unknown as MetaConnectionsService, collector as unknown as AdCollectorService, insights as unknown as InsightsService,
+    { collect: jest.fn() } as unknown as AdLibraryCollectorService, { adLibraryEnabled: false } as unknown as AppConfig,
+  );
   const tiktokSources = new TikTokRunSourceFactory(
     tiktokConnections as unknown as TikTokConnectionsService, tiktokCollector as unknown as TikTokCollectorService, tiktokInsights as unknown as TikTokInsightsService,
   );

@@ -52,6 +52,11 @@ describe('AppConfig', () => {
     expect(() => new AppConfig()).not.toThrow();
   });
 
+  it('reads the Ad Library countries, upper-cased', () => {
+    withEnvironment({ META_AD_LIBRARY_COUNTRIES: 'de, gb ,' });
+    expect(new AppConfig().adLibraryCountries).toEqual(['DE', 'GB']);
+  });
+
   it('supports pointing Meta at a mock server and extra media hosts for test environments', () => {
     withEnvironment({
       META_GRAPH_BASE_URL: 'http://mock-meta:4010/',
@@ -65,6 +70,7 @@ describe('AppConfig', () => {
     expect(config.metaDialogBaseUrl).toBe('http://mock-meta:4010');
     expect(config.mediaExtraAllowedHosts).toEqual(['mock-meta', 'other-host']);
     expect(config.adLibraryEnabled).toBe(true);
+    expect(config.adLibraryCountries).toEqual(['ALL']);
     expect(config.corsOrigins).toEqual(['http://a.test', 'http://b.test']);
   });
 });

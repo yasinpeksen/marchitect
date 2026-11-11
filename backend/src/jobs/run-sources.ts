@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AdCollectorService, CollectAdsResult } from '../advertisements/ad-collector.service';
+import { AdLibraryCollectorService, isLibraryAdId, mergeCollectResults } from '../advertisements/ad-library-collector.service';
+import { AppConfig } from '../common/app-config';
 import { AdAccountRow } from '../common/types';
 import { InsightAd, InsightsService } from '../insights/insights.service';
 import { MetaApiError } from '../meta/meta-api.client';
@@ -30,6 +32,8 @@ export class MetaRunSourceFactory {
     private readonly connections: MetaConnectionsService,
     private readonly collector: AdCollectorService,
     private readonly insights: InsightsService,
+    private readonly libraryCollector: AdLibraryCollectorService,
+    private readonly config: AppConfig,
   ) {}
 
   async open(userId: string, adAccountId: string): Promise<RunSource> {
@@ -37,9 +41,17 @@ export class MetaRunSourceFactory {
     return {
       searchStage: 'searching_meta',
       account,
-      collect: (keywords) => this.collector.collect({ userId, account, context, keywords }),
-      collectInsights: (ads, dateFrom, dateTo, onProgress) =>
-        this.insights.collect({ userId, metaAccountId: account.meta_account_id, context, ads, dateFrom, dateTo, onProgress }),
+      // Own ad account (by name) plus, when enabled, the public Ad Library (anyone's ads by keyword).
+      collect: async (keywords) => {
+        const own = await this.collector.collect({ userId, account, context, keywords });
+        if (!this.config.adLibraryEnabled) return own;
+        return mergeCollectResults(own, await this.libraryCollector.collect({ userId, account, context, keywords }));
+      },
+      // Library ads have no performance data in the Marketing API insights.
+      collectInsights: (ads, dateFrom, dateTo, onProgress) => {
+        const ownAds = ads.filter((ad) => !isLibraryAdId(ad.meta_ad_id));
+        return ownAds.length === 0 ? Promise.resolve([]) : this.insights.collect({ userId, metaAccountId: account.meta_account_id, context, ads: ownAds, dateFrom, dateTo, onProgress });
+      },
       noteFailure: (error) => this.connections.noteFailure(account.connection_id, error),
       isAuthFailure: (error) => error instanceof MetaApiError && error.isAuth,
     };

@@ -135,7 +135,8 @@ slots, overlap guard, pause/resume, failure notifications) and security/infrastr
 - Permissions: `ads_read` (required), `business_management` (lists Business-Manager-owned accounts). Standard/advanced access and app review requirements follow Meta’s rules for your use.
 - Keyword search on Meta uses `CONTAIN` filters on ad, campaign and ad-set **names** (the Marketing API cannot filter by creative text). Headline / primary-text matching works on already-collected ads.
 - Insights: sync requests for short ranges, **asynchronous report runs** for ≥31 days or ≥100 ads. Rate-limit headers are honoured; transient/rate-limit errors retry with exponential backoff and jitter.
-- Competitor research via the Ad Library is an optional, separate endpoint (`META_AD_LIBRARY_ENABLED=true`), subject to Meta’s eligibility and without performance metrics.
+- Public ads: with `META_AD_LIBRARY_ENABLED=true`, **Collect ads** also searches Meta’s Ad Library by keyword (`META_AD_LIBRARY_COUNTRIES`, default `ALL`) and stores the matches (ad text, advertiser, platforms, snapshot link; **no performance metrics**). Meta only returns this to apps whose user completed the identity confirmation at facebook.com/ads/library/api (otherwise error 10, shown as a warning on the run), and lists commercial ads only for the EU / UK, other regions only political / issue ads.
+- Own-account search only matches names in the connected ad accounts: an account without ads (or a disabled one) finds nothing.
 
 ## TikTok behaviour
 - Auth: a TikTok for Business Marketing API access token plus the advertiser ids to read (copy them from Ads Manager). The token is checked with `advertiser/info`, stored encrypted and never returned. No OAuth flow yet.

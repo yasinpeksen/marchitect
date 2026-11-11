@@ -283,6 +283,17 @@ describe('MetaApiClient', () => {
     });
   });
 
+  describe('listAdLibrary', () => {
+    it('pages through Ad Library results up to the cap', async () => {
+      fetchMock
+        .mockImplementationOnce(() => Promise.resolve(jsonResponse({ data: [{ id: 'l1' }, { id: 'l2' }], paging: { next: 'https://graph.example.test/v24.0/ads_archive?after=2' } })))
+        .mockImplementationOnce(() => Promise.resolve(jsonResponse({ data: [{ id: 'l3' }] })));
+      expect((await buildClient().listAdLibrary(context, { search_terms: 'shoes' }, 10)).map((entry) => entry.id)).toEqual(['l1', 'l2', 'l3']);
+      expect(requestedUrl().pathname).toBe('/v24.0/ads_archive');
+      expect(requestedUrl().searchParams.get('search_terms')).toBe('shoes');
+    });
+  });
+
   describe('insights', () => {
     it('fetches synchronous insights', async () => {
       fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ data: [{ ad_id: '1' }] })));

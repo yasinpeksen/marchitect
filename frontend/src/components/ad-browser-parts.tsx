@@ -117,7 +117,7 @@ export function SearchPanel(props: SearchPanelProps) {
         </div>
       )}
       <p className="mt-3 text-xs text-slate-500">
-        Results below come instantly from your collected database. “Collect ads” asynchronously fetches matching ads, creatives, insights and media from your connected Meta and TikTok ad accounts.
+        Results below come instantly from your collected database. “Collect ads” asynchronously fetches matching ads, creatives, insights and media from your connected Meta and TikTok ad accounts (matched by ad, campaign and ad group name), and public ads from Meta’s Ad Library when it is enabled (no performance data).
       </p>
     </Card>
   );

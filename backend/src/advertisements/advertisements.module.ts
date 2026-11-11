@@ -13,6 +13,7 @@ import { AdQueryDto } from '../search/search.dto';
 import { SearchModule } from '../search/search.module';
 import { SearchService } from '../search/search.service';
 import { AdCollectorService } from './ad-collector.service';
+import { AdLibraryCollectorService } from './ad-library-collector.service';
 import { creativeVariations } from './creative-mapper';
 
 class AddTagDto {
@@ -140,7 +141,7 @@ class AdsController {
 @Module({
   imports: [MetaIntegrationModule, SearchModule, MediaStorageModule],
   controllers: [AdsController],
-  providers: [AdCollectorService],
-  exports: [AdCollectorService],
+  providers: [AdCollectorService, AdLibraryCollectorService],
+  exports: [AdCollectorService, AdLibraryCollectorService],
 })
 export class AdvertisementsModule {}
